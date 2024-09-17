@@ -101,7 +101,9 @@ namespace Common {
             it.m_node->next = node;
             node->prev = it.m_node;
             node->next = next;
-            next->prev = node;
+            // If we inserted after the tail, the new node becomes the tail.
+            if (next) { next->prev = node; }
+            else { m_tail = node; }
             m_spinlock.release();
         }
 
@@ -122,7 +124,9 @@ namespace Common {
             it.m_node->next = node;
             node->prev = it.m_node;
             node->next = next;
-            next->prev = node;
+            // If we inserted after the tail, the new node becomes the tail.
+            if (next) { next->prev = node; }
+            else { m_tail = node; }
             m_spinlock.release(); 
             return DoublyLinkedListIterator<T>(node);
         }
@@ -144,6 +148,9 @@ namespace Common {
             it.m_node->prev = node;
             node->prev = prev;
             node->next = it.m_node;
+            // If we inserted before the head, the new node becomes the head.
+            if (prev) { prev->next = node; }
+            else { m_head = node; }
             m_spinlock.release(); 
             return DoublyLinkedListIterator<T>(node);
         }
@@ -165,6 +172,9 @@ namespace Common {
             it.m_node->prev = node;
             node->prev = prev;
             node->next = it.m_node;
+            // If we inserted before the head, the new node becomes the head.
+            if (prev) { prev->next = node; }
+            else { m_head = node; }
             m_spinlock.release(); 
             return DoublyLinkedListIterator<T>(node);
         }

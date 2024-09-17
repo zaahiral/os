@@ -24,19 +24,19 @@ RUN set -x \
     && chmod -R o-w,g+w binutils-${BINUTILS_VERSION} \
     && chmod -R o-w,g+w gcc-${GCC_VERSION}
 
-# Copy compile scripts
-COPY files/src /usr/local/src/
-
-
-# Copy gcc patches
-COPY files/gcc/t-x86_64-elf /usr/local/src/gcc-${GCC_VERSION}/gcc/config/i386/
-COPY files/gcc/config.gcc.patch /usr/local/src/gcc-${GCC_VERSION}/gcc/
-
 # Build and install binutils and the cross-compiler
 RUN set -x \
     && cd /usr/local/src \
-    && ./build-binutils.sh ${BINUTILS_VERSION} \
-    && ./build-gcc.sh ${GCC_VERSION}
+    && mkdir build-binutils && cd build-binutils \
+    && ../binutils-${BINUTILS_VERSION}/configure --target=x86_64-elf --prefix=/usr/local \
+        --with-sysroot --disable-nls --disable-werror \
+    && make -j$(nproc) && make install \
+    && cd /usr/local/src \
+    && mkdir build-gcc && cd build-gcc \
+    && ../gcc-${GCC_VERSION}/configure --target=x86_64-elf --prefix=/usr/local \
+        --disable-nls --enable-languages=c,c++ --without-headers \
+    && make -j$(nproc) all-gcc && make install-gcc \
+    && cd /usr/local/src && rm -rf build-binutils build-gcc
 
 CMD ["/bin/bash"]
 

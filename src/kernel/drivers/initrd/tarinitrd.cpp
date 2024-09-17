@@ -112,7 +112,7 @@ namespace Filesystem {
 
     void TarReader::vfsdriver_close(VirtualFilesystemNode* vnode) {}
 
-    VirtualFilesystemDirectoryEntry* TarReader::vfsdriver_readdir(VirtualFilesystemNode* vnode, uint64_t index) {}
+    VirtualFilesystemDirectoryEntry* TarReader::vfsdriver_readdir(VirtualFilesystemNode* vnode, uint64_t index) { return nullptr; }
 
     // Get file/directory from directory VFSnode.
     VirtualFilesystemNode* TarReader::vfsdriver_finddir(VirtualFilesystemNode* vnode, char* name)

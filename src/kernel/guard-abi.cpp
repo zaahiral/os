@@ -48,3 +48,11 @@ extern "C" void __cxa_guard_release(uint64_t* ptr) {
     __atomic_store_n(&guard->initialised, 1, __ATOMIC_RELEASE);
     guard->unlock();
 }
+
+// Static objects register their destructors here. The kernel never exits, so they are never called.
+extern "C" void* __dso_handle = nullptr;
+
+extern "C" int __cxa_atexit(void (*)(void*), void*, void*)
+{
+    return 0;
+}

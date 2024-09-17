@@ -96,9 +96,10 @@ namespace Networking
             message->set_dest_port(socket->m_remotePort);
             message->set_length(((length & 0x00FF) << 8) | ((length & 0xFF00) >> 8));
             
-            memcpy(buffer + sizeof(UserDatagramProtocolHeader), data, length);
+            memcpy(buffer + sizeof(UserDatagramProtocolHeader), data, size);
             message->set_checksum(0);
             InternetProtocolV4::InternetProtocolManager::instance()->send_data(socket->m_remoteIP, 0x11, buffer, length);
+            kfree(buffer);
         }
 
         void UserDatagramProtocolManager::bind(UserDatagramProtocolSocket* socket, UserDatagramProtocolHandler* handler)

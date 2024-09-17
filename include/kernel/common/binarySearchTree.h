@@ -69,41 +69,43 @@ namespace Common {
             root = root->parent;
         }
         return root;
-        TreeNode* m_startingAddress;
-        TreeNode* m_root;
-        uint64_t m_elementCount;
-        uint64_t m_maxSize;
-        bool (*m_lessThanPredicate)(T, T);
-        void remove_node(TreeNode* node);
-        void substitute_nodes(TreeNode* before, TreeNode* after);
-        TreeNode* successor_node(TreeNode* node);
-        TreeNode* find_node_from_element(T item, TreeNode* node);
-        TreeNode* minimum_node(TreeNode* node);
-        TreeNode* get_root_node();
-    };
-
-    template <typename T>
-    BinarySearchTree<T>::BinarySearchTree(void* address, uint64_t maxSize, bool (*lessThanPredicate)(T, T))
-    {
-        m_startingAddress = (TreeNode*)address;
-        m_root = m_startingAddress;
-        m_elementCount = 0;
-        m_maxSize = 0;
-        m_lessThanPredicate = lessThanPredicate;
     }
 
     template <typename T>
-    typename BinarySearchTree<T>::TreeNode* BinarySearchTree<T>::get_root_node()
+    T* BinarySearchTree<T>::get_successor(T item)
     {
-        if (m_elementCount == 0) { return nullptr; }
-        TreeNode* root = m_root;
+        // Insert the item, so that we can use the successor of its node, and then remove it again.
+        insert_element(item);
+        TreeNode* node = m_startingAddress + m_elementCount - 1;
+        TreeNode* succ = successor_node(node);
+        remove_element(item);
+        if (!succ) { return nullptr; }
+        return &succ->value;
+    }
 
-        // Verify that this is the root node.
-        while (root->parent)
+    template <typename T>
+    void BinarySearchTree<T>::insert_element(T item)
+    {
+        // Nodes are contiguous in memory, so the new node is placed after the last node.
+        TreeNode* ptr = m_startingAddress + m_elementCount;
+        *ptr = TreeNode();
+        ptr->value = item;
+
+        // Traverse down the tree to find the parent of the new node.
+        TreeNode* node = get_root_node();
+        TreeNode* trailingPointer = nullptr;
+        while (node)
         {
-            root = root->parent;
+            trailingPointer = node;
+            if (m_lessThanPredicate(item, node->value))
+                node = node->left;
+            else
+                node = node->right;
         }
-        return root;
+        m_elementCount++;
+        ptr->parent = trailingPointer;
+        if (!trailingPointer)
+        {
             m_root = ptr;
             return;
         }

@@ -1,3 +1,10 @@
+<p align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/logo/logo-dark.svg">
+<img width="440" alt="cOS, an operating system in modern C++" src="docs/logo/logo-light.svg">
+</picture>
+</p>
+
 # cOS - A Modern Operating System
 
 Winner of the Hack Club Arcade Showcase 2024, out of over 2000 projects. 
@@ -17,19 +24,31 @@ Some of the responsibilities of the kernel include:
 - Loading programs in and out of memory
 
 
-Currently there are only a few mainstream operating systems: Microsoft Windows, macOS and Linux. Each of these operating systems are over 20 years old and are well supported by most commercial software. Installation can be done using the Dockerfile. You will need QEMU (the emulator I used) for running locally!
+Currently there are only a few mainstream operating systems: Microsoft Windows, macOS and Linux. Each of these operating systems is over 20 years old and is well supported by most commercial software.
 
 
 ## Project Outline
 
-The mainstream operating systems mentioned in the previous section are extremely complex with millions of lines of code and have fixed designs for the sake of backwards compatibility. As a result, these operating systems are not used to teach undergraduate courses. Instead, there are operating systems written to be used in an educational context, such as MINIX and xv6. However, they do not support modern hardware and are often no longer maintained.
-This project aims to investigate the process of creating an operating system that supports modern hardware to help me understand more about computer architectures and operating systems. Other beneficiaries of this project would be university students as they can learn about the mechanisms used by modern operating systems that are not utilised in older educational operating systems.
+Mainstream operating systems contain millions of lines of code and retain design constraints for backwards compatibility, which makes them difficult to study as complete systems. Teaching systems such as MINIX and xv6 deliberately use a smaller scope. cOS explores a different point in that design space by implementing an x86-64 kernel, user-space processes, a virtual filesystem and a TCP/IP stack in one project.
+The project began as a way to understand computer architecture and operating-system implementation. It also provides students with a worked example of how paging, interrupts, scheduling, system calls, filesystems and networking fit together.
+
+## Building and Running
+
+You will need an `x86_64-elf` cross-compiler, NASM, CMake, GRUB (`grub-mkrescue` for the `i386-pc` platform), xorriso and QEMU. The Dockerfile in `buildenv` builds the cross-compiler; on macOS, Homebrew has all of them (`x86_64-elf-gcc nasm cmake i686-elf-grub xorriso qemu`).
+
+```
+cmake -B build
+cmake --build build
+cmake --build build --target run
+```
+
+This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card. Files placed in `targets/x86_64/initrd` are packed into the initial ramdisk, and the kernel opens them by their path in the ramdisk, such as `initrd/hello.txt`.
 
 ## Project Specification
 
-These are checkboxes, but I will probably only review these guidlines at the end to check them off, rather than iteratively during the project. These are mostly for my own reference. 
+These are checkboxes, but I will probably only review these guidelines at the end to check them off, rather than iteratively during the project. These are mostly for my own reference.
 
-_Edit: Quoted items are my evalutation on this completed checklist, and a link to evidence._
+_Edit: Quoted items are my evaluation of this completed checklist, with links to evidence._
 
 ### cOS Kernel
 
@@ -57,7 +76,7 @@ _Edit: Quoted items are my evalutation on this completed checklist, and a link t
   - [x] - A Task State Segment (TSS)
   - [x] - An Interrupt Descriptor Table (IDT)
 
-    > The Global Descriptor Table and Task State Segment are both managed and set up by the kernel. The Global Descriptor Table contains entries for different protection levels; ring 0 and ring 3. This helps protect the operating system from malicious or buggy user-space programs. Ring 1 and 2 could possibly be used for device drivers as to allow less protection than user-space but more protection than running at kernel level. These have been checked by tests 1.4 and 1.6. 
+    > The Global Descriptor Table and Task State Segment are both managed and set up by the kernel. The Global Descriptor Table contains entries for different protection levels: ring 0 and ring 3. This helps protect the operating system from malicious or buggy user-space programs. Ring 1 and 2 could possibly be used for device drivers to provide less protection than user-space while retaining more protection than kernel-level execution. These have been checked by tests 1.4 and 1.6.
 - [x] - The kernel enters long mode.
 
 > The kernel jumps to a higher half 64-bit address which is where 64-bit code begins execution.
@@ -70,7 +89,7 @@ _Edit: Quoted items are my evalutation on this completed checklist, and a link t
 - [x] - The initrd is a Unix Standard TAR file.
 - [x] - The kernel initialises interrupts.
 
-> The Interrupt Descriptor Table is set up to call a custom interrupt handler, as verified in test 1.6. This uses virtual functions to find a relevant interrupt handler and call it. As a result, device drivers can easily handle interrupts by inheriting from the interrupt handler class. The Programmable Interrupt Controller (PIC) has also been set up as verified in test 1.7, and hardware interrupts are received in test 1.8. In the future, the Advanced Programmable Interrupt Controller (APIC) could be used to allow for multi-processor interrupt routing.
+> The Interrupt Descriptor Table is set up to call a custom interrupt handler, as verified in test 1.6. This uses virtual functions to find a relevant interrupt handler and call it. As a result, device drivers can easily handle interrupts by inheriting from the interrupt handler class. The Programmable Interrupt Controller (PIC) has also been set up as verified in test 1.7, and hardware interrupts are received in test 1.8. In the future, the Advanced Programmable Interrupt Controller (APIC) could support multiprocessor interrupt routing.
 
 - [x] - The kernel initialises the Programmable Interval Timer (PIT).
 
@@ -132,7 +151,7 @@ _Edit: Quoted items are my evalutation on this completed checklist, and a link t
 
 My project will be to create an operating system (cOS) that runs on modern hardware and is able to run user-space programs. The project will consist of the following sections:
 
-- The core kernel that is responsible for initialising and managing the processor; handing hardware operations and memory; executing and switching between processes; and providing services to processes.
+- The core kernel that is responsible for initialising and managing the processor, handling hardware operations and memory, executing and switching between processes, and providing services to processes.
 - The filesystem layer that is responsible for providing a virtual filesystem interface for processes to access files in a concrete filesystem agnostic manner.
 - The networking layer that is responsible for managing network operations and sockets by interfacing with the network card driver and managing various networking protocol stacks.
 - The user-space in which most user programs execute with C Library support. This is separated from the kernel using the protection mechanisms provided by the processor.
@@ -143,8 +162,8 @@ The instruction set architecture which generally defines how software controls t
 
 ### Cross Compilation
 
-The default system compilers make assumptions about the host machine (the machine that the program will run on), such as whether it has support for dynamic loading and whether it is freestanding. As a result, we must compile our own cross- compiler.
-A cross-compiler is a compiler where the host machine (machine that the binaries will execute on) is different from the build machine (machine that compiles the binaries). Our host machine will be running cOS, however we do not have a compiler to build cOS! We make a generic cross-compiler that targets a generic x86-64 machine with no operating system in order to build our operating system. We use `gcc` as our compiler, and our host machine is `x86-64-elf` (we can eventually create our own toolchain and our host machine will be `x86-64-cos`). We will also build this using a Docker container, as this allows our build process to be easily reproducible by anyone. A deep dive into the build process is beyond the scope of this documentation.
+The default system compilers make assumptions about the host machine (the machine that the program will run on), such as whether it has support for dynamic loading and whether it is freestanding. As a result, we must compile our own cross-compiler.
+A cross-compiler is a compiler where the target machine (the machine that the binaries will execute on) is different from the host machine (the machine that runs the compiler). Our target machine will be running cOS, however we do not have a compiler that runs on cOS! We make a generic cross-compiler that targets a generic x86-64 machine with no operating system in order to build our operating system. We use `gcc` as our compiler, and our target is `x86_64-elf` (we can eventually create our own toolchain and our target will be `x86_64-cos`). We will also build this using a Docker container, as this allows our build process to be easily reproducible by anyone. A deep dive into the build process is beyond the scope of this documentation.
 
 ### Hierarchy Charts
 
@@ -153,7 +172,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Kernel
 
 <p align="center">
-<img width="447" alt="Screenshot 2024-08-13 at 14 39 05" src="https://github.com/user-attachments/assets/8eccf38c-bcb2-4405-a1cf-d1a42cd6d523" style="display: block; margin-left: auto; margin-right: auto;">
+<img width="640" alt="Hierarchy chart of the kernel." src="docs/diagrams/kernel.svg">
 </p>
 
 
@@ -181,7 +200,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
   <tr>
    <td>Long mode 
    </td>
-   <td>Sets up temporary paging structures that map physical memory at a high address as a prerequisite for entering long mode. Then long mode can be enabled on the processor and a far jump can be made to the kernel’s main C entry point. 
+   <td>Sets up temporary paging structures that map physical memory at a high address as a prerequisite for entering long mode. Then long mode can be enabled on the processor and a far jump can be made to the 64-bit entry point, which calls the kernel’s main C++ entry point. 
    </td>
   </tr>
   <tr>
@@ -259,7 +278,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
   <tr>
    <td><strong>Devices</strong> 
    </td>
-   <td><strong>Manages the Peripheral Components Interconnect and interrupt-based or I/O-based devices</strong> 
+   <td><strong>Manages the Peripheral Component Interconnect and interrupt-based or I/O-based devices</strong> 
    </td>
   </tr>
   <tr>
@@ -289,7 +308,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
   <tr>
    <td>Dispatcher 
    </td>
-   <td>The dispatcher is responsible to signalling to processes when an event message has been sent. This includes modifying wait and listen queues when necessary. 
+   <td>The dispatcher is responsible for signalling to processes when an event message has been sent. This includes modifying wait and listen queues when necessary. 
    </td>
   </tr>
   <tr>
@@ -325,7 +344,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
   <tr>
    <td>Synchronisation 
    </td>
-   <td>Provides synchronisation primitives. This includes a spinlock, which disables interrupts and busy-waits if the lock is acquired. Also provides a mutex blocks a task if it is already acquired and adds it to a wait queue that is awoken when the mutex is released. 
+   <td>Provides synchronisation primitives. This includes a spinlock, which disables interrupts and busy-waits if the lock is acquired. Also provides a mutex that blocks a task if it is already acquired and adds it to a wait queue that is awoken when the mutex is released. 
    </td>
   </tr>
 </table>
@@ -333,7 +352,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Filesystem Layer
 
 <p align="center">
-<img width="361" alt="Screenshot 2024-08-13 at 19 36 29" src="https://github.com/user-attachments/assets/ee8300e7-f0a8-44cf-b2f4-0c8023fdfa4e">
+<img width="340" alt="Hierarchy chart of the filesystem layer." src="docs/diagrams/filesystem.svg">
 </p>
 
 
@@ -389,7 +408,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Networking layer
 
 <p align="center">
-<img width="421" alt="Screenshot 2024-08-13 at 19 38 45" src="https://github.com/user-attachments/assets/7dd50385-0955-4662-86a7-80b5e0365eb1">
+<img width="490" alt="Hierarchy chart of the networking layer." src="docs/diagrams/networking.svg">
 </p>
 
 <table>
@@ -430,7 +449,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
   <tr>
    <td><strong>Address Resolution Protocol</strong> 
    </td>
-   <td><strong>Implements the Address Resolution Protocol for translation Internet Protocol version 4 addresses to MAC addresses.</strong> 
+   <td><strong>Implements the Address Resolution Protocol for translating Internet Protocol version 4 addresses to MAC addresses.</strong> 
    </td>
   </tr>
   <tr>
@@ -456,7 +475,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Internet Protocol v4
 
 <p align="center">
-<img width="385" alt="Screenshot 2024-08-13 at 19 39 10" src="https://github.com/user-attachments/assets/f009305e-a4a4-47ef-b5b1-c7f3a2189397">
+<img width="340" alt="Hierarchy chart of the Internet Protocol v4 layer." src="docs/diagrams/ipv4.svg">
 </p>
 
 <table>
@@ -503,13 +522,13 @@ We show hierarchy charts for each part of the operating system, followed by a ta
   <tr>
    <td>Connection establishment 
    </td>
-   <td>Can passive open or connect to a server, establishing a connection with a two-way handshake, sending SYN packets, and managing state. 
+   <td>Can passive open or connect to a server, establishing a connection with a three-way handshake, sending SYN packets, and managing state. 
    </td>
   </tr>
   <tr>
    <td>Received packet reordering 
    </td>
-   <td>Uses a buffer to hold received packets and reorder them by synchronisation number. Sends to the application layer when there is a sequential number of packets, and the acknowledgement number is updated. 
+   <td>Uses a buffer to hold received packets and reorder them by sequence number. Sends to the application layer when there is a sequential number of packets, and the acknowledgement number is updated. 
    </td>
   </tr>
   <tr>
@@ -523,7 +542,7 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Userspace
 
 <p align="center">
-<img width="302" alt="Screenshot 2024-08-13 at 19 40 38" src="https://github.com/user-attachments/assets/44e92cd0-54cf-4d7f-a9e9-ba026f3dac30">
+<img width="340" alt="Hierarchy chart of user-space." src="docs/diagrams/userspace.svg">
 </p>
 
 <table>
@@ -791,7 +810,7 @@ To test networking, I will use QEMU’s command line to save a dump of network c
   <tr>
    <td>3.8 
    </td>
-   <td>Able to send a HTTP POST request to an online website. This is tested by connecting to a webhook monitoring website webhook.site. 
+   <td>Able to send a HTTP POST request to a web server. This is tested by connecting to an HTTP server on the host machine, which QEMU makes reachable at the gateway address. 
    </td>
    <td>Wireshark displays a compliant HTTP transmission. 
    </td>
@@ -820,7 +839,7 @@ To test networking, I will use QEMU’s command line to save a dump of network c
   <tr>
    <td>4.2 
    </td>
-   <td>Load multiple tasks with varying priorities. The tasks should execute in order of priority.  
+   <td>Load multiple tasks with varying priorities. Each task prints and then sleeps. The tasks should execute in order of priority.  
    </td>
    <td>The tasks print in order of priority. 
    </td>
@@ -864,7 +883,7 @@ To test networking, I will use QEMU’s command line to save a dump of network c
 
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/98eafbec-c08a-42fc-b2cf-54b47a729fd5" alt="Screenshot of QEMU as evidence for test 1.1.">
+<img width="700" src="docs/evidence/test-1.1.png" alt="Screenshot of QEMU as evidence for test 1.1.">
 </p>
 
 <p align="center">
@@ -873,28 +892,51 @@ To test networking, I will use QEMU’s command line to save a dump of network c
 
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/23894dce-de67-4ba2-8c36-2f49cbf94c09" alt="Screenshot of memory map as evidence for test 1.2. ">
+<img width="700" src="docs/evidence/test-1.2.png" alt="Screenshot of memory map as evidence for test 1.2.">
 </p>
 
 <p align="center">
 <i>Screenshot of memory map as evidence for test 1.2. </i>
 </p>
 
+```cpp
+for (auto it = Multiboot::MultibootManager::instance().first(MULTIBOOT_TAG_TYPE_MMAP); !it.is_end(); ++it)
+{
+    auto tag = reinterpret_cast<multiboot_tag_mmap*>(&(*it));
+    for (auto entry = tag->entries;
+        reinterpret_cast<uint64_t>(entry) < reinterpret_cast<uint64_t>(tag) + tag->size;
+        entry = reinterpret_cast<multiboot_mmap_entry*>((reinterpret_cast<uint64_t>(entry) + tag->entry_size)))
+    {
+        if (entry->type != 1) { continue; }
+        printf("MEMORY DETECTED: ");
+        printf(entry->len);
+        printf(" bytes at ");
+        printf(entry->addr);
+        printf("\n");
+    }
+}
+```
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/984673a3-0c72-43d6-8c27-5127d9243fad" alt="Screenshot of accessing the virtual address of the physical address 0x1000 as evidence for test 1.3.  ">
+<i>Kernel code used to print the available memory regions for test 1.2. </i>
+</p>
+
+
+<p align="center">
+<img width="700" src="docs/evidence/test-1.3.png" alt="Screenshot of accessing the virtual address of the physical address 0x1000 as evidence for test 1.3.">
 </p>
 
 <p align="center">
 <i>Screenshot of accessing the virtual address of the physical address 0x1000 as evidence for test 1.3.  </i>
 </p>
 
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/2f492813-2529-4c13-b568-9be97022c0f2" alt="Screenshot of contents of 0x1000 from QEMU monitor as evidence for test 1.3. The xp command returns the content of a physical address. ">
-</p>
+```
+(qemu) xp /1xb 0x1000
+00001000: 0x89
+```
 
 <p align="center">
-<i>Screenshot of contents of 0x1000 from QEMU monitor as evidence for test 1.3. <br>
+<i>QEMU monitor output of the contents of 0x1000 as evidence for test 1.3. <br>
     The xp command returns the content of a physical address.  </i>
 </p>
 
@@ -908,18 +950,24 @@ printf(*(uint8_t*)Memory::VirtualAddress(Memory::PhysicalAddress(0x1000)).get())
 </p>
 
 
+```
+(qemu) info registers
+...
+CS =0008 0000000000000000 ffffffff 00af9a00 DPL=0 CS64 [-R-]
+SS =0000 0000000000000000 ffffffff 00c09300 DPL=0 DS   [-WA]
+TR =0030 ffffff8000122000 00000068 00008900 DPL=0 TSS64-avl
+GDT=     ffffff8000122068 0000003f
+IDT=     ffffff8000123060 00000fff
+```
+
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/6a70237d-47e8-4b17-af30-615f6263ecce" alt="Screenshot of registers from QEMU monitor for test 1.4.">
+<i>QEMU monitor registers for test 1.4. </i>
 </p>
 
-<p align="center">
-<i>Screenshot of registers from QEMU monitor for test 1.4. </i>
-</p>
-
 
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/d3882b68-49e6-4f2c-847e-be064ef49e95" alt="Screenshot of page fault before allocating page for test 1.5. ">
+<img width="700" src="docs/evidence/test-1.5a.png" alt="Screenshot of page fault before allocating page for test 1.5.">
 </p>
 
 <p align="center">
@@ -937,7 +985,7 @@ printf(*(uint8_t*)0x1000);
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/7de8f9a5-a2fd-4940-9754-4a372d56f218" alt="Screenshot of no page fault occurring after allocating page for test 1.5. ">
+<img width="700" src="docs/evidence/test-1.5b.png" alt="Screenshot of no page fault occurring after allocating page for test 1.5.">
 </p>
 
 <p align="center">
@@ -958,24 +1006,31 @@ printf(*(uint8_t*)0x1000);
 </p>
 
 
+```
+(qemu) info registers
+...
+GDT=     ffffff8000122068 0000003f
+IDT=     ffffff8000123060 00000fff
+CR0=80000011 CR2=0000000000000000 CR3=0000000000137000 CR4=00000020
+```
+
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/059f4333-a3cd-4d7b-b245-9c6334ef49d6" alt="Screenshot of registers from QEMU monitor for test 1.6. ">
+<i>QEMU monitor registers for test 1.6. </i>
+</p>
+
+```
+(qemu) info pic
+...
+pic1: irr=00 imr=f7 isr=00 hprio=0 irq_base=28 rr_sel=0 elcr=0c fnm=0
+pic0: irr=00 imr=f8 isr=00 hprio=0 irq_base=20 rr_sel=0 elcr=00 fnm=0
+```
+
+<p align="center">
+<i>QEMU monitor PIC offsets for test 1.7. </i>
 </p>
 
 <p align="center">
-<i>Screenshot of registers from QEMU monitor for test 1.6. </i>
-</p>
-
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/7eb78dc9-7c18-4b8c-841a-872670906350" alt="Screenshot of PIC offsets from QEMU monitor for test 1.7. ">
-</p>
-
-<p align="center">
-<i>Screenshot of PIC offsets from QEMU monitor for test 1.7. </i>
-</p>
-
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/bce971e4-4cb1-413d-a000-0c518180b04e" alt="Screenshot of keyboard scan-codes being printed for test 1.8. ">
+<img width="700" src="docs/evidence/test-1.8.png" alt="Screenshot of keyboard scan-codes being printed for test 1.8.">
 </p>
 
 <p align="center">
@@ -983,7 +1038,7 @@ printf(*(uint8_t*)0x1000);
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/31b17980-67a7-4fd0-9497-21083b20287e" alt="Screenshot of page fault occurring by accessing address 4321 for test 1.9. ">
+<img width="700" src="docs/evidence/test-1.9.png" alt="Screenshot of page fault occurring by accessing address 4321 for test 1.9.">
 </p>
 
 <p align="center">
@@ -999,7 +1054,7 @@ printf(*(uint8_t*) 4321);
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/1cb1efb0-e675-4b76-a5a3-98efb4a4684e" alt="Screenshot of allocation not being overwritten for test 2.1. ">
+<img width="700" src="docs/evidence/test-2.1.png" alt="Screenshot of allocation not being overwritten for test 2.1.">
 </p>
 
 <p align="center">
@@ -1034,7 +1089,7 @@ printf(*(uint8_t*) 4321);
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/084133b8-c96b-44ab-b723-2051b108256e" alt="Screenshot of kernel not crashing for test 2.2.">
+<img width="700" src="docs/evidence/test-2.2.png" alt="Screenshot of kernel not crashing for test 2.2.">
 </p>
 
 <p align="center">
@@ -1044,6 +1099,7 @@ printf(*(uint8_t*) 4321);
 ```cpp
 // Allocate 8192 bytes. 
 auto allocation = kmalloc(8192, 0); 
+printf("Allocated 8192 bytes.");
 ```
 
 <p align="center">
@@ -1051,7 +1107,7 @@ auto allocation = kmalloc(8192, 0);
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/2b5a3e14-43cd-4dff-a08a-1c2e1b238525" alt="Screenshot of detected PCI devices for test 2.3.">
+<img width="700" src="docs/evidence/test-2.3.png" alt="Screenshot of detected PCI devices for test 2.3.">
 </p>
 
 <p align="center">
@@ -1059,16 +1115,49 @@ auto allocation = kmalloc(8192, 0);
 </p>
 
 
+```
+(qemu) info pci
+  Bus  0, device   0, function 0:
+    Host bridge: PCI device 8086:1237
+      PCI subsystem 1af4:1100
+      id ""
+  Bus  0, device   1, function 0:
+    ISA bridge: PCI device 8086:7000
+      PCI subsystem 1af4:1100
+      id ""
+  Bus  0, device   1, function 1:
+    IDE controller: PCI device 8086:7010
+      PCI subsystem 1af4:1100
+      BAR4: I/O at 0xc020 [0xc02f]
+      id ""
+  Bus  0, device   1, function 3:
+    Bridge: PCI device 8086:7113
+      PCI subsystem 1af4:1100
+      IRQ 9, pin A
+      id ""
+  Bus  0, device   2, function 0:
+    VGA controller: PCI device 1234:1111
+      PCI subsystem 1af4:1100
+      BAR0: 32 bit prefetchable memory at 0xfd000000 [0xfdffffff]
+      BAR2: 32 bit memory at 0xfebd0000 [0xfebd0fff]
+      BAR6: 32 bit memory (not mapped)
+      id ""
+  Bus  0, device   3, function 0:
+    Ethernet controller: PCI device 1022:2000
+      PCI subsystem 0000:0000
+      IRQ 11, pin A
+      BAR0: I/O at 0xc000 [0xc01f]
+      BAR1: 32 bit memory (not mapped)
+      BAR6: 32 bit memory (not mapped)
+      id ""
+```
+
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/98a1f750-cd2a-4ad8-9758-79f9c621f058" alt="Screenshot of QEMU monitor dump of emulated PCI devices for test 2.3.">
+<i>QEMU monitor dump of emulated PCI devices for test 2.3. </i>
 </p>
 
 <p align="center">
-<i>Screenshot of QEMU monitor dump of emulated PCI devices for test 2.3. </i>
-</p>
-
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/e46ea115-b1e4-4836-b583-330056a5a52a" alt="Screenshot of reading initrd/afile.txt for test 2.4. ">
+<img width="700" src="docs/evidence/test-2.4.png" alt="Screenshot of reading initrd/afile.txt for test 2.4.">
 </p>
 
 <p align="center">
@@ -1101,7 +1190,7 @@ auto file = Filesystem::VirtualFilesystemManager::instance().open_file("initrd/a
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/f997d6f1-cad0-42c3-8964-2339f0aec419" alt="Screenshot of reading initrd/dir/afile.txt for test 2.5. ">
+<img width="700" src="docs/evidence/test-2.5.png" alt="Screenshot of reading initrd/dir/afile.txt for test 2.5.">
 </p>
 
 <p align="center">
@@ -1126,7 +1215,7 @@ auto file = Filesystem::VirtualFilesystemManager::instance().open_file("initrd/d
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/645b46f7-1825-4122-85c1-7f3e446a97c4" alt="Screenshot of receiving keyboard events for test 2.6.  ">
+<img width="700" src="docs/evidence/test-2.6.png" alt="Screenshot of receiving keyboard events for test 2.6.">
 </p>
 
 <p align="center">
@@ -1149,13 +1238,14 @@ auto eventDescriptor = Events::EventDispatcher::instance().register_event_listen
 <i>Kernel code used to receive keyboard events for test 2.6.</i>
 </p>
 
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/8fab77fc-8925-4b53-81fe-694225cf5c79" alt="Screenshot of Wireshark showing “Hello network!”
-  transmitted on the network for test 3.1. ">
-</p>
+```
+1   0.000000 6e:65:74:77:6f:72 → 48:65:6c:6c:6f:20 0x6b21 14 Ethernet II
+
+0000  48 65 6c 6c 6f 20 6e 65 74 77 6f 72 6b 21         Hello network!
+```
 
 <p align="center">
-<i>Screenshot of Wireshark showing “Hello network!”<br>
+<i>Wireshark (tshark) output showing "Hello network!"<br>
   transmitted on the network for test 3.1.  </i>
 </p>
 
@@ -1169,13 +1259,21 @@ AMDPCNETIIIDriver.send_data((uint8_t*)"Hello network!", 14);
 </p>
 
 
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/02d872e4-1a05-4dd2-94fb-4574baaa0e40" alt="Screenshot of Wireshark showing a compliant Ethernet II frame with the payload “Hello network!” transmitted on the network for test 3.2. ">
-</p>
+```
+Frame 1: Packet, 28 bytes on wire (224 bits), 28 bytes captured (224 bits)
+Ethernet II, Src: 52:54:00:12:34:56 (52:54:00:12:34:56), Dst: Broadcast (ff:ff:ff:ff:ff:ff)
+    Destination: Broadcast (ff:ff:ff:ff:ff:ff)
+    Source: 52:54:00:12:34:56 (52:54:00:12:34:56)
+    Type: Unknown (0x0000)
+Data (14 bytes)
+0000  48 65 6c 6c 6f 20 6e 65 74 77 6f 72 6b 21         Hello network!
+    Data: 48656c6c6f206e6574776f726b21
+    [Length: 14]
+```
 
 <p align="center">
-<i>Screenshot of Wireshark showing a compliant Ethernet II frame with the payload<br>
-  “Hello network!” transmitted on the network for test 3.2.  </i>
+<i>Wireshark (tshark) output showing a compliant Ethernet II frame with the payload<br>
+  "Hello network!" transmitted on the network for test 3.2.  </i>
 </p>
 
 ```cpp
@@ -1188,19 +1286,31 @@ Networking::Ethernet::EthernetLayerManager::instance()->send_data(0xFFFFFFFFFFFF
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/24bf0d47-d064-4cb9-bcab-c5b938c2b785" alt="Screenshot of getting the MAC address for the gateway IP 10.0.0.2 for test 3.3. ">
+<img width="700" src="docs/evidence/test-3.3.png" alt="Screenshot of getting the MAC address for the gateway IP 10.0.2.2 for test 3.3.">
 </p>
 
 <p align="center">
-<i>Screenshot of getting the MAC address for the gateway IP 10.0.0.2 for test 3.3. </i>
+<i>Screenshot of getting the MAC address for the gateway IP 10.0.2.2 for test 3.3. </i>
 </p>
 
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/cca26e6b-2b9e-4574-a27a-7cb5523f7729" alt="Screenshot of Wireshark showing compliant ARP request sent by the kernel and a response which is processed and cached for test 3.3. ">
-</p>
+```
+1   0.000000 52:54:00:12:34:56 → Broadcast    ARP 42 Who has 10.0.2.2? Tell 10.0.2.15
+2   0.000024 52:55:0a:00:02:02 → 52:54:00:12:34:56 ARP 64 10.0.2.2 is at 52:55:0a:00:02:02
+
+Address Resolution Protocol (reply)
+    Hardware type: Ethernet (1)
+    Protocol type: IPv4 (0x0800)
+    Hardware size: 6
+    Protocol size: 4
+    Opcode: reply (2)
+    Sender MAC address: 52:55:0a:00:02:02 (52:55:0a:00:02:02)
+    Sender IP address: 10.0.2.2
+    Target MAC address: 52:54:00:12:34:56 (52:54:00:12:34:56)
+    Target IP address: 10.0.2.15
+```
 
 <p align="center">
-<i>Screenshot of Wireshark showing compliant ARP request sent by the kernel and a<br> response which is processed and cached for test 3.3.  </i>
+<i>Wireshark (tshark) output showing compliant ARP request sent by the kernel and a<br> response which is processed and cached for test 3.3.  </i>
 </p>
 
 ```cpp
@@ -1238,12 +1348,32 @@ printf(MACAddress);
 <i>Kernel code used to resolve gateway IP address using ARP for test 3.3. </i>
 </p>
 
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/202c7728-3db9-4442-85e1-644a2df6c729" alt="Screenshot of Wireshark showing a compliant IPv4 packet transmitted (other than protocol type) for test 3.4.  ">
-</p>
+```
+1   0.000000 52:54:00:12:34:56 → Broadcast    ARP 42 Who has 10.0.2.2? Tell 10.0.2.15
+2   0.000974 52:55:0a:00:02:02 → 52:54:00:12:34:56 ARP 64 10.0.2.2 is at 52:55:0a:00:02:02
+3   0.007759    10.0.2.15 → 10.0.2.2     IPv4 48 IPv6 hop-by-hop options[Malformed Packet]
+
+Internet Protocol Version 4, Src: 10.0.2.15, Dst: 10.0.2.2
+    0100 .... = Version: 4
+    .... 0101 = Header Length: 20 bytes (5)
+    Differentiated Services Field: 0x2f (DSCP: Unknown, ECN: CE)
+    Total Length: 34
+    Identification: 0x0001 (1)
+    010. .... = Flags: 0x2, Don't fragment
+        .1.. .... = Don't fragment: Set
+    ...0 0000 0000 0000 = Fragment Offset: 0
+    Time to Live: 64
+    Protocol: IPv6 Hop-by-Hop Option (0)
+    Header Checksum: 0x229c [validation disabled]
+    [Header checksum status: Unverified]
+    Source Address: 10.0.2.15
+    Destination Address: 10.0.2.2
+IPv6 Hop-by-Hop Option
+[Malformed Packet: IPv6 Hop-by-Hop]
+```
 
 <p align="center">
-<i>Screenshot of Wireshark showing a compliant IPv4 packet transmitted <br> (other than protocol type) for test 3.4. </i>
+<i>Wireshark (tshark) output showing a compliant IPv4 packet transmitted <br> (other than protocol type) for test 3.4. </i>
 </p>
 
 ```cpp
@@ -1264,12 +1394,26 @@ Networking::InternetProtocolV4::InternetProtocolManager::instance()->send_data(g
 <i>Kernel code used to send IPv4 packet for test 3.4. </i>
 </p>
 
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/f879e58e-9435-4406-81fd-49dc1b4bb040" alt="Screenshot of Wireshark showing a compliant UDP packet transmitted for test 3.5. ">
-</p>
+```
+1   0.000000 52:54:00:12:34:56 → Broadcast    ARP 42 Who has 10.0.2.2? Tell 10.0.2.15
+2   0.000017 52:55:0a:00:02:02 → 52:54:00:12:34:56 ARP 64 10.0.2.2 is at 52:55:0a:00:02:02
+3   0.007515    10.0.2.15 → 10.0.2.2     UDP 56 1024 → 1234 Len=14
+
+User Datagram Protocol, Src Port: 1024, Dst Port: 1234
+    Source Port: 1024
+    Destination Port: 1234
+    Length: 22
+    Checksum: 0x0000 [zero-value ignored]
+        [Checksum Status: Not present]
+    UDP payload (14 bytes)
+Data (14 bytes)
+0000  48 65 6c 6c 6f 20 6e 65 74 77 6f 72 6b 21         Hello network!
+    Data: 48656c6c6f206e6574776f726b21
+    [Length: 14]
+```
 
 <p align="center">
-<i>Screenshot of Wireshark showing a compliant UDP packet transmitted for test 3.5.  </i>
+<i>Wireshark (tshark) output showing a compliant UDP packet transmitted for test 3.5.  </i>
 </p>
 
 ```cpp
@@ -1283,6 +1427,7 @@ uint32_t gip_be = ((uint32_t)gip4 << 24)
 
                 | (uint32_t)gip1; 
 
+auto udpManager = new Networking::UserDatagramProtocol::UserDatagramProtocolManager(); 
 auto socket = udpManager->connect(gip_be, 1234); 
 
 udpManager->send(socket, (uint8_t*)"Hello network!", 14); 
@@ -1292,15 +1437,38 @@ udpManager->send(socket, (uint8_t*)"Hello network!", 14);
 <i>Kernel code used to transmit UDP packet for test 3.5.  </i>
 </p>
 
+```
+1   0.000000 52:55:0a:00:02:02 → Broadcast    ARP 60 Who has 10.0.2.15? Tell 10.0.2.2
+2   0.002879 52:54:00:12:34:56 → 52:55:0a:00:02:02 ARP 42 10.0.2.15 is at 52:54:00:12:34:56
+3   0.003016     10.0.2.2 → 10.0.2.15    UDP 60 62081 → 1234 Len=16
+
+User Datagram Protocol, Src Port: 62081, Dst Port: 1234
+    Source Port: 62081
+    Destination Port: 1234
+    Length: 24
+    Checksum: 0xf28a [unverified]
+    [Checksum Status: Unverified]
+    UDP payload (16 bytes)
+Data (16 bytes)
+0000  48 65 6c 6c 6f 20 66 72 6f 6d 20 68 6f 73 74 21   Hello from host!
+    Data: 48656c6c6f2066726f6d20686f737421
+    [Length: 16]
+```
+
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/9f44d1dc-637e-472b-b34e-bd58f7de7bb2" alt="Screenshot of Wireshark showing a compliant UDP packet being received for test 3.6.  ">
+<i>Wireshark (tshark) output showing a compliant UDP packet being received for test 3.6.   </i>
 </p>
 
 <p align="center">
-<i>Screenshot of Wireshark showing a compliant UDP packet being received for test 3.6.   </i>
+<img width="700" src="docs/evidence/test-3.6.png" alt="Screenshot of the kernel printing the data received over UDP for test 3.6.">
+</p>
+
+<p align="center">
+<i>Screenshot of the kernel printing the data received over UDP, sent from the host with <code>nc -u</code>, for test 3.6. </i>
 </p>
 
 ```cpp
+auto udpManager = new Networking::UserDatagramProtocol::UserDatagramProtocolManager(); 
 auto socket = udpManager->listen(1234); 
 ```
 
@@ -1308,12 +1476,20 @@ auto socket = udpManager->listen(1234);
 <i>Kernel code used to receive UDP packet for test 3.6.  </i>
 </p>
 
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/1f135782-8240-481f-9c64-46beee7b9322" alt="Screenshot of Wireshark showing a compliant TCP connection when connecting to a remote endpoint for test 3.7. ">
-</p>
+```
+1   0.000000 52:54:00:12:34:56 → Broadcast    ARP 42 Who has 10.0.2.2? Tell 10.0.2.15
+2   0.000046 52:55:0a:00:02:02 → 52:54:00:12:34:56 ARP 64 10.0.2.2 is at 52:55:0a:00:02:02
+3   0.008314    10.0.2.15 → 10.0.2.2     TCP 58 1024 → 1234 [SYN] Seq=0 Win=8192 Len=0 MSS=1460
+4   0.008638     10.0.2.2 → 10.0.2.15    TCP 60 1234 → 1024 [SYN, ACK] Seq=0 Ack=1 Win=65535 Len=0 MSS=1460
+5   0.018228    10.0.2.15 → 10.0.2.2     TCP 58 1024 → 1234 [ACK] Seq=1 Ack=1 Win=8192 Len=0
+6   0.018547    10.0.2.15 → 10.0.2.2     TCP 72 1024 → 1234 [ACK] Seq=1 Ack=1 Win=8192 Len=14
+7   0.018598     10.0.2.2 → 10.0.2.15    TCP 60 1234 → 1024 [ACK] Seq=1 Ack=15 Win=65535 Len=0
+8   8.022046     10.0.2.2 → 10.0.2.15    TCP 60 1234 → 1024 [FIN, ACK] Seq=1 Ack=15 Win=65535 Len=0
+9   8.022585    10.0.2.15 → 10.0.2.2     TCP 58 1024 → 1234 [ACK] Seq=15 Ack=2 Win=8192 Len=0
+```
 
 <p align="center">
-<i>Screenshot of Wireshark showing a compliant TCP connection when connecting<br> to a remote endpoint for test 3.7. </i>
+<i>Wireshark (tshark) output showing a compliant TCP connection when connecting<br> to a remote endpoint for test 3.7. </i>
 </p>
 
 
@@ -1328,6 +1504,7 @@ uint32_t gip_be = ((uint32_t)gip4 << 24)
 
                 | (uint32_t)gip1; 
 
+auto tcpManager = new Networking::TransmissionControlProtocol::TransmissionControlProtocolManager(); 
 auto socket = tcpManager->connect(gip_be, 1234); 
 
 while (socket->m_state != Networking::TransmissionControlProtocol::TransmissionControlProtocolSocket::State::ESTABLISHED) {} 
@@ -1339,12 +1516,37 @@ socket->send((uint8_t*)"Hello network!", 14);
 <i>Kernel code used to connect to a remote TCP endpoint for test 3.7. </i>
 </p>
 
-<p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/48a71b0a-bf22-4c53-8be1-78b9584c015d" alt="Screenshot of Wireshark showing a compliant HTTP POST request sent for test 3.8.  ">
-</p>
+```
+1   0.000000 52:54:00:12:34:56 → Broadcast    ARP 42 Who has 10.0.2.2? Tell 10.0.2.15
+2   0.000021 52:55:0a:00:02:02 → 52:54:00:12:34:56 ARP 64 10.0.2.2 is at 52:55:0a:00:02:02
+3   0.007673    10.0.2.15 → 10.0.2.2     TCP 58 1024 → 3939 [SYN] Seq=0 Win=8192 Len=0 MSS=1460
+4   0.007991     10.0.2.2 → 10.0.2.15    TCP 60 3939 → 1024 [SYN, ACK] Seq=0 Ack=1 Win=65535 Len=0 MSS=1460
+5   0.017825    10.0.2.15 → 10.0.2.2     TCP 58 1024 → 3939 [ACK] Seq=1 Ack=1 Win=8192 Len=0
+6   0.018079    10.0.2.15 → 10.0.2.2     HTTP/JSON 217 POST /d493159e-39a2-4015-a5b7-cfcc05a9d739 HTTP/1.1 , JSON (application/json)
+7   0.018115     10.0.2.2 → 10.0.2.15    TCP 60 3939 → 1024 [ACK] Seq=1 Ack=160 Win=65535 Len=0
+8   0.028448     10.0.2.2 → 10.0.2.15    HTTP 206 HTTP/1.0 200 OK  (text/html)
+9   0.028480     10.0.2.2 → 10.0.2.15    TCP 60 3939 → 1024 [FIN, ACK] Seq=153 Ack=160 Win=65535 Len=0
+10   0.029511    10.0.2.15 → 10.0.2.2     TCP 58 1024 → 3939 [ACK] Seq=160 Ack=153 Win=8192 Len=0
+11   0.029785    10.0.2.15 → 10.0.2.2     TCP 58 1024 → 3939 [ACK] Seq=160 Ack=154 Win=8192 Len=0
+
+Hypertext Transfer Protocol
+    POST /d493159e-39a2-4015-a5b7-cfcc05a9d739 HTTP/1.1\n
+        Request Method: POST
+        Request URI: /d493159e-39a2-4015-a5b7-cfcc05a9d739
+        Request Version: HTTP/1.1
+    Host: localhost\n
+    Accept: application/json\n
+    Content-Type: application/json\n
+    Content-Length: 15\n
+        [Content length: 15]
+    \n
+    [Full request URI: http://localhost/d493159e-39a2-4015-a5b7-cfcc05a9d739]
+    File Data: 15 bytes
+JavaScript Object Notation: application/json
+```
 
 <p align="center">
-<i>Screenshot of Wireshark showing a compliant HTTP POST request sent for test 3.8.  </i>
+<i>Wireshark (tshark) output showing a compliant HTTP POST request sent for test 3.8.  </i>
 </p>
 
 ```cpp
@@ -1358,11 +1560,10 @@ uint32_t gip_be = ((uint32_t)gip4 << 24)
 
                 | (uint32_t)gip1; 
 
+auto tcpManager = new Networking::TransmissionControlProtocol::TransmissionControlProtocolManager(); 
 auto socket = tcpManager->connect(gip_be, 3939); 
-
 while (socket->m_state != Networking::TransmissionControlProtocol::TransmissionControlProtocolSocket::State::ESTABLISHED) {} 
-
-socket-> send((uint8_t*)"POST /d493159e-39a2-4015-a5b7-cfcc05a9d739 HTTP/1.1\nHost: webhook.site\nAccept: application/json\nContent-Type: application/json\nContent-Length: 15\n\n{\"test\":\"data\"}", 163); 
+socket->send((uint8_t*)"POST /d493159e-39a2-4015-a5b7-cfcc05a9d739 HTTP/1.1\nHost: localhost\nAccept: application/json\nContent-Type: application/json\nContent-Length: 15\n\n{\"test\":\"data\"}", 159); 
 ```
 
 <p align="center">
@@ -1370,7 +1571,7 @@ socket-> send((uint8_t*)"POST /d493159e-39a2-4015-a5b7-cfcc05a9d739 HTTP/1.1\nHo
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/56bc1af3-c8ec-44fa-b9c0-6c4279c1222d" alt="Screenshot of kernel running multiple tasks for test 4.1.">
+<img width="700" src="docs/evidence/test-4.1.png" alt="Screenshot of kernel running multiple tasks for test 4.1.">
 </p>
 
 <p align="center">
@@ -1423,7 +1624,7 @@ Task::TaskManager::instance().run();
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/42d2914d-a414-4afa-888b-2989269b3330" alt="Screenshot of kernel running different priority tasks for test 4.2. ">
+<img width="700" src="docs/evidence/test-4.2.png" alt="Screenshot of kernel running different priority tasks for test 4.2.">
 </p>
 
 <p align="center">
@@ -1435,26 +1636,30 @@ Task::TaskManager::instance().run();
 void task_one() 
 { 
     printf("Task one\n"); 
-    while (1); 
+    while (1) 
+        Task::TaskManager::instance().sleep_for(1000); 
 }  
 
 void task_two() 
 { 
     printf("Task two\n"); 
-    while (1); 
+    while (1) 
+        Task::TaskManager::instance().sleep_for(1000); 
 } 
 
 
 void task_three() 
 { 
     printf("Task three\n"); 
-    while (1); 
+    while (1) 
+        Task::TaskManager::instance().sleep_for(1000); 
 } 
 
 void task_four() 
 { 
     printf("Task four\n"); 
-    while (1);
+    while (1) 
+        Task::TaskManager::instance().sleep_for(1000); 
 } 
 
 
@@ -1479,7 +1684,7 @@ Task::TaskManager::instance().run();
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/1fbbbaa7-9b65-4476-b18a-7440c4d92a81" alt="Screenshot of kernel receiving keyboard interrupts as all tasks block for test 4.3. ">
+<img width="700" src="docs/evidence/test-4.3.png" alt="Screenshot of kernel receiving keyboard interrupts as all tasks block for test 4.3.">
 </p>
 
 <p align="center">
@@ -1532,7 +1737,7 @@ Task::TaskManager::instance().run();
 </p>
 
 <p align="center">
-<img width="700" alt="Screenshot 2024-08-19 at 11 31 53" src="https://github.com/user-attachments/assets/9d397584-3f93-4ae1-9c9a-e0471ce95099" alt="Screenshot of user-space program executing a system call for test 4.4. ">
+<img width="700" src="docs/evidence/test-4.4.png" alt="Screenshot of user-space program executing a system call for test 4.4.">
 </p>
 
 <p align="center">
@@ -1547,7 +1752,8 @@ void elf_task()
     Loader::prepare_elf("initrd/userspaceProgram", currentTask); 
     auto entryPoint = currentTask->get_entry_point(); 
     Task::TaskManager::instance().unlock(); 
-    start_userspace_task_sysret((uint64_t)entryPoint, (uint64_t)(currentTask->get_kstack())); 
+    // prepare_elf maps a 16KiB user stack at 0x1000000, and the stack grows down from its top.
+    start_userspace_task_sysret((uint64_t)entryPoint, 0x1000000 + Memory::PAGE_4KiB * 4); 
 
 } 
 ```
@@ -1557,7 +1763,9 @@ void elf_task()
 </p>
 
 ```cpp
-void _start() 
+#include "process/syscall.h"
+
+extern "C" void _start() 
 { 
     syscall(SYSCALL_DPRINTF, (uint64_t)"Hello from userspace!"); 
     while(1); 
@@ -1568,8 +1776,17 @@ void _start()
 <i>ELF executable source code for test 4.4. </i>
 </p>
 
+```
+x86_64-elf-gcc -ffreestanding -nostdlib -static -fno-pie -mno-red-zone -Iinclude/kernel \
+    -Wl,-Ttext=0x400100 -Wl,-e,_start userspaceProgram.cpp -o targets/x86_64/initrd/userspaceProgram
+```
+
+<p align="center">
+<i>Command used to compile the ELF executable into the initrd for test 4.4. </i>
+</p>
+
 ```cpp
-void _start() 
+extern "C" void _start() 
 { 
     asm volatile ("cli"); 
     while (1); 
@@ -1578,6 +1795,14 @@ void _start()
 
 <p align="center">
 <i>ELF executable source code that causes General Protection<br> Fault for test 4.5.  </i>
+</p>
+
+```
+v=0d e=0000 i=0 cpl=3 IP=002b:0000000000400104 pc=0000000000400104 SP=0023:0000000001003ff8
+```
+
+<p align="center">
+<i>QEMU interrupt log (<code>-d int</code>) showing a General Protection Fault (vector 0x0d) raised at privilege level 3 by the <code>cli</code> instruction for test 4.5. </i>
 </p>
 
 ```cpp

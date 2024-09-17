@@ -54,6 +54,24 @@ void task_one()
     }
 }
 
+// Pass frames received by the network driver up to the Ethernet layer.
+void network_task()
+{
+    auto tid = Task::TaskManager::instance().get_current_task();
+    auto ed = Events::EventDispatcher::instance().register_event_listener(tid, "Network/Event", 0);
+    while (1)
+    {
+        Events::EventDispatcher::instance().block_event_listen(tid, ed);
+        auto data = (Drivers::NetworkDataReceived*)Events::EventDispatcher::instance().read_from_event_queue(tid, ed);
+        while (data)
+        {
+            Networking::Ethernet::EthernetLayerManager::instance()->on_receive_data(data->buf, data->size);
+            delete data;
+            data = (Drivers::NetworkDataReceived*)Events::EventDispatcher::instance().read_from_event_queue(tid, ed);
+        }
+    }
+}
+
 extern "C" void pre_kernel(const Multiboot::multiboot_info* multibootStructure, const uint64_t gdtp,
                             const uint64_t gdt, const uint64_t tss)
 {
@@ -123,10 +141,14 @@ CPU::set_task_state_segment(static_cast<CPU::TaskStateSegment64*>(Memory::Virtua
     AMDPCNETIIIDriver.set_IP_address(ip_be);
     Networking::InternetProtocolV4::InternetProtocolManager im(&ELM, gip_be, subnet_be);
 
+    // Scheduler queue 1 (priority 256-511) is for network stack processing.
+    auto networkTask = Task::TaskManager::instance().create_new_kernel_task(256);
+    networkTask.set_entry_point((void*)& network_task);
+    Task::TaskManager::instance().add_task(networkTask);
+
     auto task1 = Task::TaskManager::instance().create_new_kernel_task();
     task1.set_entry_point((void*)& task_one);
 
     Task::TaskManager::instance().add_task(task1);
     Task::TaskManager::instance().run();
-    kernel_main();
 }

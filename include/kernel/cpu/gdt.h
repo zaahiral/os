@@ -46,7 +46,7 @@ namespace CPU {
 
         void set_limit(uint16_t limit) { m_limit = limit; }
 
-        uint64_t get_base() { return m_base0 | (m_base1 << 16) | (m_base2 << 24) | (m_base3 << 32); }
+        uint64_t get_base() { return m_base0 | (m_base1 << 16) | (m_base2 << 24) | ((uint64_t)m_base3 << 32); }
 
         void set_base(uint64_t base)
         {

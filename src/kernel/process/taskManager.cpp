@@ -1,7 +1,6 @@
 #include "process/task.h"
 #include "process/taskManager.h"
 #include "cpu/tss.h"
-#include "process/roundRobinScheduler.h"
 #include "memory/AddressSpace.h"
 #include "process/masterScheduler.h"
 #include "x86_64.h"
@@ -198,6 +197,8 @@ namespace Task
         if (!is_spinlock_acquired()) { m_spinlock.acquire(); }
         auto currentTask = m_scheduler->get_current_task();
         m_scheduler->block_task();
+        // Releasing the spinlock re-enables interrupts, so we stop a timer interrupt from switching away from this blocked task.
+        m_schedulerChangingTask = true;
         m_spinlock.release();
         block_task_and_refresh(currentTask);
     }

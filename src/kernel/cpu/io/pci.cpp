@@ -68,7 +68,7 @@ namespace PeripheralComponentInterconnect {
                 for (int func = 0; func < functionCount; func++)
                 {
                     auto dev = get_pci_device(bus, device, func);
-                    if (dev.vendorId == 0x0000 || dev.vendorId == 0xFFFF) { break; }
+                    if (dev.vendorId == 0x0000 || dev.vendorId == 0xFFFF) { continue; }
                     m_devices.append(dev);
                 }
             }

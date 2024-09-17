@@ -47,7 +47,7 @@ namespace CPU {
             };
             uint64_t get_offset()
             {
-                return (m_offsetHigh << 32) | (m_offsetMid << 16) |  m_offsetLow;
+                return ((uint64_t)m_offsetHigh << 32) | (m_offsetMid << 16) |  m_offsetLow;
             }
             void set_offset(uint64_t offset)
             {

@@ -9,16 +9,18 @@
 uint64_t sleep_for_syscall(uint64_t duration)
 {
     Task::TaskManager::instance().sleep_for(duration);
+    return 0;
 }
 
 uint64_t vmmap_syscall(uint64_t* addr, uint64_t len, uint64_t hint, uint64_t flags)
 {
     //Task::TaskManager::instance().syscall_mmap(addr, len, hint, flags);
+    return -1;
 }
 
 uint64_t vmumap_syscall(uint64_t addr, uint64_t len)
 {
-
+    return -1;
 }
 
 uint64_t fopen_syscall(uint64_t filename, uint64_t flags)
@@ -40,6 +42,7 @@ uint64_t fopen_syscall(uint64_t filename, uint64_t flags)
     process->openFileDescriptors.insert(pfd, fd);
     
     return i;*/
+    return -1;
 }
 
 uint64_t fread_syscall(uint64_t fd, uint64_t buf, uint64_t count)
@@ -48,6 +51,7 @@ uint64_t fread_syscall(uint64_t fd, uint64_t buf, uint64_t count)
     auto cfd = Processes::ProcessManager::instance()->get_pfd(fd, process);
     if (cfd->fd != fd) { return -1; }
     return Filesystem::VirtualFilesystemManager::instance()->read(cfd->node, cfd->offset, count, (void*)buf);*/
+    return -1;
 }
 
 uint64_t fclose_syscall(uint64_t fd)
@@ -58,12 +62,14 @@ uint64_t fclose_syscall(uint64_t fd)
     // We should close the file here, but we only have an initrd mounted at the moment
     process->openFileDescriptors.remove(cfd);
     return 0;*/
+    return -1;
 }
 
 uint64_t eregister_syscall(uint64_t event, uint64_t param)
 {
     /*auto process = Processes::Scheduler::instance()->get_current_process();
     return Events::EventDispatcher::register_event_listener(process, (char*)event, (void*)param);*/
+    return -1;
 }
 
 uint64_t elisten_syscall(uint64_t ed)
@@ -71,18 +77,21 @@ uint64_t elisten_syscall(uint64_t ed)
     /*auto process = Processes::Scheduler::instance()->get_current_process();
     Events::EventDispatcher::block_event_listen(process, ed);
     return 1;*/
+    return -1;
 }
 
 uint64_t ederegister_syscall(uint64_t ed)
 {
     /*auto process = Processes::Scheduler::instance()->get_current_process();
     return Events::EventDispatcher::deregister_event_listener(process, ed);*/
+    return -1;
 }
 
 uint64_t eread_syscall(uint64_t ed, uint64_t buf, uint64_t count)
 {
     /*auto process = Processes::Scheduler::instance()->get_current_process();
     return Events::EventDispatcher::read_from_event_queue(process, ed);*/
+    return -1;
 }
 
 uint64_t printtoscreen_syscall(uint64_t arg1)
@@ -126,4 +135,5 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         return 0;
 
     }
+    return -1;
 }

@@ -14,17 +14,17 @@ namespace CPU
         return rflags;
     }
 
-    static inline uint64_t cli()
+    static inline void cli()
     {
         asm volatile ("cli");
     }
 
-    static inline uint64_t sti()
+    static inline void sti()
     {
         asm volatile ("sti");
     }
 
-    static inline uint64_t hlt()
+    static inline void hlt()
     {
         asm volatile ("hlt");
     }
