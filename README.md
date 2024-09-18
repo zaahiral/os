@@ -876,6 +876,14 @@ To test networking, I will use QEMU’s command line to save a dump of network c
    <td>The process prints to the screen at a fixed rate. 
    </td>
   </tr>
+  <tr>
+   <td>4.7 
+   </td>
+   <td>User-space programs can read files through the system calls interface. This is tested by running a program that opens, reads and closes a file in the initrd. 
+   </td>
+   <td>The program prints the contents of the file. 
+   </td>
+  </tr>
 </table>
 
 
@@ -1813,7 +1821,7 @@ void elf_task()
 { 
     Task::TaskManager::instance().lock(); 
     auto currentTask = Task::TaskManager::instance().get_current_task_pointer(); 
-    Loader::prepare_elf("initrd/userspaceProgram", currentTask); 
+    Loader::prepare_elf("initrd/bin/hello", currentTask); 
     auto entryPoint = currentTask->get_entry_point(); 
     Task::TaskManager::instance().unlock(); 
     // prepare_elf maps a 16KiB user stack at 0x1000000, and the stack grows down from its top.
@@ -1837,16 +1845,7 @@ extern "C" void _start()
 ```
 
 <p align="center">
-<i>ELF executable source code for test 4.4. </i>
-</p>
-
-```
-x86_64-elf-gcc -ffreestanding -nostdlib -static -fno-pie -mno-red-zone -Iinclude/kernel \
-    -Wl,-Ttext=0x400100 -Wl,-e,_start userspaceProgram.cpp -o targets/x86_64/initrd/userspaceProgram
-```
-
-<p align="center">
-<i>Command used to compile the ELF executable into the initrd for test 4.4. </i>
+<i>ELF executable source code in <code>userspace/hello.cpp</code> for test 4.4. CMake compiles each program in <code>userspace</code> into <code>initrd/bin</code>. </i>
 </p>
 
 ```cpp
@@ -1882,6 +1881,36 @@ void task_one()
 
 <p align="center">
 <i>Kernel code that prints to screen roughly every second for test 4.6.</i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-4.7.png" alt="Screenshot of a user-space program reading a file for test 4.7.">
+</p>
+
+<p align="center">
+<i>Screenshot of a user-space program reading a file for test 4.7. </i>
+</p>
+
+```cpp
+#include "process/syscall.h"
+
+// Reads a file from the initrd with the file system calls, and prints it.
+extern "C" void _start()
+{
+    char buffer[64];
+    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)"initrd/hello.txt", 0);
+    uint64_t length = syscall(SYSCALL_FREAD, fd, (uint64_t)buffer, sizeof(buffer) - 1);
+    buffer[length] = '\0';
+    syscall(SYSCALL_FCLOSE, fd);
+
+    syscall(SYSCALL_DPRINTF, (uint64_t)"Read from initrd/hello.txt: ");
+    syscall(SYSCALL_DPRINTF, (uint64_t)buffer);
+    while (1);
+}
+```
+
+<p align="center">
+<i>ELF executable source code in <code>userspace/readfile.cpp</code> for test 4.7, which is loaded with the kernel code from test 4.4. </i>
 </p>
 
 <p align="center">
