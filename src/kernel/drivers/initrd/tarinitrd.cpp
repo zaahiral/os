@@ -44,9 +44,13 @@ namespace Filesystem {
                     strcpy(entry.filename, directoryName);
                     entry.inodeNum = m_dirVirtualNodeNum;
                     m_directoryMap.find(workingDirectory)->last.entries.append(entry);
+                    workingDirectory = m_dirVirtualNodeNum;
                 }
-                // FIXME: set this to it in the case that the dir already exists
-                workingDirectory = m_dirVirtualNodeNum;
+                else
+                {
+                    // The directory already exists, so we move into it.
+                    workingDirectory = it->inodeNum;
+                }
             }
             else
             {

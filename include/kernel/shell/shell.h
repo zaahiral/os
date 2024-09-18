@@ -37,6 +37,8 @@ namespace Shell
         void net_command();
         void arp_command(char* address);
         void gui_command();
+        void run_file_command(char* path);
+        void script_command(char* source);
         void reboot_command();
     };
 }

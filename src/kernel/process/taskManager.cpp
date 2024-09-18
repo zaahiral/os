@@ -37,14 +37,17 @@ namespace Task
         task.set_priority(taskPriority);
 
         // At the moment, task stacks are allocated contiguously so we can allocate the stack at a position based on the task id.
-        auto stackBottom = (START_OF_PROCESS_KSTACKS + Memory::PAGE_4KiB * (task.get_task_id()));
-        Memory::MemoryManager::instance().alloc_page(Memory::VirtualMemoryAllocationRequest(Memory::VirtualAddress(stackBottom), true));
+        auto stackBottom = (START_OF_PROCESS_KSTACKS + KERNEL_STACK_SIZE * (task.get_task_id()));
 
         // We need to map a safe kernel stack and the task's kernel stack into the task's address space.
         Memory::MemoryManager::instance().request_virtual_map(Memory::VirtualMemoryMapRequest(Memory::MemoryManager::instance().get_physical_address(START_OF_PROCESS_KSTACKS), Memory::VirtualAddress(START_OF_PROCESS_KSTACKS), true), task.get_tlTable());
-        Memory::MemoryManager::instance().request_virtual_map(Memory::VirtualMemoryMapRequest(Memory::MemoryManager::instance().get_physical_address(stackBottom), Memory::VirtualAddress(stackBottom), true), task.get_tlTable());
+        for (auto page = stackBottom; page < stackBottom + KERNEL_STACK_SIZE; page += Memory::PAGE_4KiB)
+        {
+            Memory::MemoryManager::instance().alloc_page(Memory::VirtualMemoryAllocationRequest(Memory::VirtualAddress(page), true));
+            Memory::MemoryManager::instance().request_virtual_map(Memory::VirtualMemoryMapRequest(Memory::MemoryManager::instance().get_physical_address(page), Memory::VirtualAddress(page), true), task.get_tlTable());
+        }
 
-        task.set_kstack(reinterpret_cast<void*>(stackBottom + Memory::PAGE_4KiB));
+        task.set_kstack(reinterpret_cast<void*>(stackBottom + KERNEL_STACK_SIZE));
         return task;
     }
 
