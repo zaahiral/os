@@ -12,6 +12,7 @@
 #include "drivers/graphics/bochsvbe.h"
 #include "network/arp.h"
 #include "gui/desktop.h"
+#include "script/interpreter.h"
 
 namespace Shell
 {
@@ -141,6 +142,8 @@ namespace Shell
         else if (!strcmp(m_line, "net")) { net_command(); }
         else if (!strcmp(m_line, "arp")) { arp_command(argument); }
         else if (!strcmp(m_line, "gui")) { gui_command(); }
+        else if (!strcmp(m_line, "run")) { run_file_command(argument); }
+        else if (!strcmp(m_line, "cs")) { script_command(argument); }
         else if (!strcmp(m_line, "reboot")) { reboot_command(); }
         else
         {
@@ -162,6 +165,8 @@ namespace Shell
         printf("net              Print the network card's MAC and IP addresses.\n");
         printf("arp <address>    Resolve an IP address to a MAC address, such as 10.0.2.2.\n");
         printf("gui              Open the graphical desktop.\n");
+        printf("run <file>       Run a cScript file, such as initrd/scripts/fibonacci.cs.\n");
+        printf("cs <code>        Run one line of cScript, such as cs print(6 * 7);\n");
         printf("reboot           Restart the computer.\n");
     }
 
@@ -290,6 +295,32 @@ namespace Shell
             return;
         }
         GUI::Desktop::run(m_tid, m_keyboardEventDescriptor);
+    }
+
+    void KernelShell::run_file_command(char* path)
+    {
+        auto file = Filesystem::VirtualFilesystemManager::instance().open_file(path, 0);
+        if (!file || !(file->flags & Filesystem::VirtualFilesystemNode::VFS_FILE))
+        {
+            printf("No such file: ");
+            printf(path);
+            printf("\n");
+            if (file) { delete file; }
+            return;
+        }
+        auto length = Filesystem::VirtualFilesystemManager::instance().filelen(file);
+        auto source = (char*)kmalloc(length + 1, 0);
+        Filesystem::VirtualFilesystemManager::instance().read(file, 0, length, source);
+        source[length] = '\0';
+        delete file;
+        script_command(source);
+        kfree(source);
+    }
+
+    void KernelShell::script_command(char* source)
+    {
+        Script::Interpreter interpreter(m_tid, m_keyboardEventDescriptor);
+        interpreter.run(source);
     }
 
     void KernelShell::reboot_command()
