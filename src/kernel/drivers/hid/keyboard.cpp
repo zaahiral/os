@@ -28,7 +28,6 @@ namespace Drivers
         // Read in scan code from keyboard.
         uint8_t scanCode = IO::in_8(0x60);
         eventMessage.message = (void*)scanCode;
-        printf(scanCode);
         Events::EventDispatcher::instance().dispatch_event(eventMessage, &m_self->m_listenqueue);
         Events::EventDispatcher::instance().wake_processes(&m_self->m_waitqueue);
     }

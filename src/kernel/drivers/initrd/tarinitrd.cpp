@@ -112,7 +112,19 @@ namespace Filesystem {
 
     void TarReader::vfsdriver_close(VirtualFilesystemNode* vnode) {}
 
-    VirtualFilesystemDirectoryEntry* TarReader::vfsdriver_readdir(VirtualFilesystemNode* vnode, uint64_t index) { return nullptr; }
+    VirtualFilesystemDirectoryEntry* TarReader::vfsdriver_readdir(VirtualFilesystemNode* vnode, uint64_t index)
+    {
+        auto* descriptor = &m_directoryMap.find(vnode->inodeNum)->last;
+        auto it = descriptor->entries.first();
+        for (uint64_t i = 0; i < index && !it.is_end(); i++) { ++it; }
+        if (it.is_end()) { return nullptr; }
+
+        // The caller is responsible for freeing the directory entry.
+        auto entry = new VirtualFilesystemDirectoryEntry();
+        entry->inodeNum = it->inodeNum;
+        strcpy(entry->name, it->filename);
+        return entry;
+    }
 
     // Get file/directory from directory VFSnode.
     VirtualFilesystemNode* TarReader::vfsdriver_finddir(VirtualFilesystemNode* vnode, char* name)

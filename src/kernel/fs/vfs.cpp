@@ -40,6 +40,12 @@ namespace Filesystem
         return vnode->driver->vfsdriver_finddir(vnode, filename);
     }
 
+    VirtualFilesystemDirectoryEntry* VirtualFilesystemManager::readdir(VirtualFilesystemNode* vnode, uint64_t index)
+    {
+        if (!vnode) return nullptr;
+        return vnode->driver->vfsdriver_readdir(vnode, index);
+    }
+
     uint64_t VirtualFilesystemManager::filelen(VirtualFilesystemNode* vnode)
     {
         if (!vnode) return 0;
