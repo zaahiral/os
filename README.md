@@ -879,6 +879,70 @@ To test networking, I will use QEMU’s command line to save a dump of network c
 </table>
 
 
+### Shell and Scripting 
+
+The shell and the cScript interpreter are tested by typing commands into the shell, and running scripts placed in the initrd.
+
+<table>
+  <tr>
+   <td>Test ID 
+   </td>
+   <td>Description 
+   </td>
+   <td>Expected result 
+   </td>
+  </tr>
+  <tr>
+   <td>5.1 
+   </td>
+   <td>The shell runs commands typed on the keyboard. This is tested by listing directories in the initrd and printing a file. 
+   </td>
+   <td>The directory entries and the file contents are printed. 
+   </td>
+  </tr>
+  <tr>
+   <td>5.2 
+   </td>
+   <td>The <code>gui</code> command switches to a graphics mode and draws a desktop. This is tested by opening the desktop and pressing Escape. 
+   </td>
+   <td>The desktop is drawn, and Escape returns to the shell with its text intact. 
+   </td>
+  </tr>
+  <tr>
+   <td>5.3 
+   </td>
+   <td>A cScript file can be run from the initrd. This is tested by running a script that uses variables, arithmetic and a built-in function. 
+   </td>
+   <td>The script prints the expected output. 
+   </td>
+  </tr>
+  <tr>
+   <td>5.4 
+   </td>
+   <td>cScript supports functions and recursion. This is tested by running a script that computes Fibonacci numbers recursively. 
+   </td>
+   <td>The first 15 Fibonacci numbers are printed. 
+   </td>
+  </tr>
+  <tr>
+   <td>5.5 
+   </td>
+   <td>The interpreter reports errors with their line number. This is tested by running a script with a syntax error, and lines that use an undefined variable and divide by zero. 
+   </td>
+   <td>Each error is printed with the correct line number, and the shell continues to run. 
+   </td>
+  </tr>
+  <tr>
+   <td>5.6 
+   </td>
+   <td>A running script can be stopped by pressing Escape. This is tested by pressing Escape during a script that counts down once a second. 
+   </td>
+   <td>The script stops and the shell continues to run. 
+   </td>
+  </tr>
+</table>
+
+
 ### Evidence
 
 
@@ -1819,6 +1883,115 @@ void task_one()
 <p align="center">
 <i>Kernel code that prints to screen roughly every second for test 4.6.</i>
 </p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-5.1.png" alt="Screenshot of listing the initrd and printing a file in the shell for test 5.1.">
+</p>
+
+<p align="center">
+<i>Screenshot of listing the initrd and printing a file in the shell for test 5.1. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-5.2.png" alt="Screenshot of the desktop drawn by the gui command for test 5.2.">
+</p>
+
+<p align="center">
+<i>Screenshot of the desktop drawn by the gui command for test 5.2. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-5.3.png" alt="Screenshot of running initrd/scripts/hello.cs for test 5.3.">
+</p>
+
+<p align="center">
+<i>Screenshot of running initrd/scripts/hello.cs for test 5.3. </i>
+</p>
+
+```cpp
+// Prints a greeting and some arithmetic.
+var name = "cOS";
+print("Hello from ", name, "!");
+print("6 * 7 = ", 6 * 7);
+print("The kernel has been running for ", uptime() / 1000, " seconds.");
+```
+
+<p align="center">
+<i>Contents of initrd/scripts/hello.cs for test 5.3. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-5.4.png" alt="Screenshot of running initrd/scripts/fibonacci.cs for test 5.4.">
+</p>
+
+<p align="center">
+<i>Screenshot of running initrd/scripts/fibonacci.cs for test 5.4. </i>
+</p>
+
+```cpp
+// Prints the first Fibonacci numbers using a recursive function.
+func fibonacci(n)
+{
+    if (n < 2) { return n; }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+var i = 0;
+while (i < 15)
+{
+    print("fibonacci(", i, ") = ", fibonacci(i));
+    i = i + 1;
+}
+```
+
+<p align="center">
+<i>Contents of initrd/scripts/fibonacci.cs for test 5.4. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-5.5.png" alt="Screenshot of errors reported by the interpreter for test 5.5.">
+</p>
+
+<p align="center">
+<i>Screenshot of errors reported by the interpreter for test 5.5. </i>
+</p>
+
+```cpp
+// This script has a syntax error on line 4, which the interpreter reports.
+var total = 0;
+total = total + 1;
+print("total is ", total)
+print("This line is never run.");
+```
+
+<p align="center">
+<i>Contents of initrd/scripts/error.cs for test 5.5. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-5.6.png" alt="Screenshot of stopping initrd/scripts/countdown.cs with Escape for test 5.6.">
+</p>
+
+<p align="center">
+<i>Screenshot of stopping initrd/scripts/countdown.cs with Escape for test 5.6. </i>
+</p>
+
+```cpp
+// Counts down once a second, and can be stopped early with Escape.
+var count = 10;
+while (count > 0)
+{
+    print(count, "...");
+    sleep(1000);
+    count = count - 1;
+}
+print("Lift off!");
+```
+
+<p align="center">
+<i>Contents of initrd/scripts/countdown.cs for test 5.6. </i>
+</p>
+
 
 ## Potential Improvements 
 
