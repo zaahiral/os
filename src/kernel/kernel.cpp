@@ -27,6 +27,7 @@
 #include "process/mutex.h"
 #include "x86_64.h"
 #include "process/masterScheduler.h"
+#include "shell/shell.h"
 
 extern "C" void __cxa_pure_virtual() { printf("This should not be called."); }
 
@@ -146,9 +147,9 @@ CPU::set_task_state_segment(static_cast<CPU::TaskStateSegment64*>(Memory::Virtua
     networkTask.set_entry_point((void*)& network_task);
     Task::TaskManager::instance().add_task(networkTask);
 
-    auto task1 = Task::TaskManager::instance().create_new_kernel_task();
-    task1.set_entry_point((void*)& task_one);
+    auto shellTask = Task::TaskManager::instance().create_new_kernel_task();
+    shellTask.set_entry_point((void*)& Shell::KernelShell::task);
 
-    Task::TaskManager::instance().add_task(task1);
+    Task::TaskManager::instance().add_task(shellTask);
     Task::TaskManager::instance().run();
 }

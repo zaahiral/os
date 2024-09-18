@@ -1,5 +1,6 @@
 #include "print.h"
 #include "memory/address.h"
+#include "cpu/io/io.h"
 
 namespace
 {
@@ -28,12 +29,28 @@ namespace
         cursorY = VGA_HEIGHT - 1;
     }
 
+    void update_cursor()
+    {
+        // The VGA controller takes the cursor position as a character offset into the text buffer.
+        uint16_t position = cursorY * VGA_WIDTH + cursorX;
+        IO::out_8(0x3D4, 0x0F);
+        IO::out_8(0x3D5, position & 0xFF);
+        IO::out_8(0x3D4, 0x0E);
+        IO::out_8(0x3D5, (position >> 8) & 0xFF);
+    }
+
     void putc(char c)
     {
         if (c == '\n')
         {
             cursorX = 0;
             cursorY++;
+        }
+        else if (c == '\b')
+        {
+            if (!cursorX) { return; }
+            cursorX--;
+            get_buffer()[cursorY * VGA_WIDTH + cursorX] = VGA_COLOUR | ' ';
         }
         else
         {
@@ -57,12 +74,14 @@ void clear_screen()
         buffer[i] = VGA_COLOUR | ' ';
     cursorX = 0;
     cursorY = 0;
+    update_cursor();
 }
 
 void printf(const char* str)
 {
     while (*str)
         putc(*str++);
+    update_cursor();
 }
 
 void printf(uint64_t num)
