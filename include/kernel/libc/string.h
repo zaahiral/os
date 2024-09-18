@@ -18,6 +18,13 @@ static char* strncpy(char* dst, char* str, uint64_t num)
     return dst;
 }
 
+static uint64_t strlen(const char* str)
+{
+    uint64_t length = 0;
+    while (str[length]) { length++; }
+    return length;
+}
+
 static int strcmp(const char* s1, const char* s2)
 {
     while(*s1 && (*s1 == *s2))

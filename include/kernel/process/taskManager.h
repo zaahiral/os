@@ -9,6 +9,8 @@
 namespace Task
 {
     static constexpr uint64_t START_OF_PROCESS_KSTACKS = 0xFFFFCF8000000000;
+    // Each task has a 64KiB kernel stack, so that deeply recursive kernel code such as the cScript interpreter has room.
+    static constexpr uint64_t KERNEL_STACK_SIZE = 0x10000;
 
     class TaskManager
     {
