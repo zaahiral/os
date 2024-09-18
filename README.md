@@ -658,9 +658,9 @@ It is the operating system’s responsibility to properly initialise the process
   <tr>
    <td>1.8 
    </td>
-   <td>Hardware interrupts call the interrupt handler. This is tested by sending keyboard scan-codes. 
+   <td>Hardware interrupts call the interrupt handler. This is tested by typing in the shell, which receives each key from the keyboard interrupt handler. 
    </td>
-   <td>The keyboard scan-codes are printed on the screen. 
+   <td>The typed characters are printed on the screen. 
    </td>
   </tr>
   <tr>
@@ -1019,9 +1019,9 @@ printf(*(uint8_t*)Memory::VirtualAddress(Memory::PhysicalAddress(0x1000)).get())
 ...
 CS =0008 0000000000000000 ffffffff 00af9a00 DPL=0 CS64 [-R-]
 SS =0000 0000000000000000 ffffffff 00c09300 DPL=0 DS   [-WA]
-TR =0030 ffffff8000122000 00000068 00008900 DPL=0 TSS64-avl
-GDT=     ffffff8000122068 0000003f
-IDT=     ffffff8000123060 00000fff
+TR =0030 ffffff800012e000 00000068 00008900 DPL=0 TSS64-avl
+GDT=     ffffff800012e068 0000003f
+IDT=     ffffff800012f060 00000fff
 ```
 
 <p align="center">
@@ -1073,9 +1073,9 @@ printf(*(uint8_t*)0x1000);
 ```
 (qemu) info registers
 ...
-GDT=     ffffff8000122068 0000003f
-IDT=     ffffff8000123060 00000fff
-CR0=80000011 CR2=0000000000000000 CR3=0000000000137000 CR4=00000020
+GDT=     ffffff800012e068 0000003f
+IDT=     ffffff800012f060 00000fff
+CR0=80000011 CR2=0000000000000000 CR3=0000000000145000 CR4=00000020
 ```
 
 <p align="center">
@@ -1094,11 +1094,11 @@ pic0: irr=00 imr=f8 isr=00 hprio=0 irq_base=20 rr_sel=0 elcr=00 fnm=0
 </p>
 
 <p align="center">
-<img width="700" src="docs/evidence/test-1.8.png" alt="Screenshot of keyboard scan-codes being printed for test 1.8.">
+<img width="700" src="docs/evidence/test-1.8.png" alt="Screenshot of characters typed into the shell for test 1.8.">
 </p>
 
 <p align="center">
-<i>Screenshot of keyboard scan-codes being printed for test 1.8. </i>
+<i>Screenshot of characters typed into the shell for test 1.8. </i>
 </p>
 
 <p align="center">
