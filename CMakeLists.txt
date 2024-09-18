@@ -20,6 +20,21 @@ target_include_directories(kernel.bin PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include/kernel/x86_64)
 set_target_properties(kernel.bin PROPERTIES LINK_DEPENDS ${LINKER_SCRIPT})
 
+# User-space programs are compiled as static ELF executables into initrd/bin. They are linked at 0x400100,
+# as the ELF loader copies the ELF header to 0x400000.
+set(USERSPACE_FLAGS -ffreestanding -nostdlib -static -fno-pie -mno-red-zone -mno-sse -fno-exceptions -fno-rtti
+    -I${CMAKE_CURRENT_SOURCE_DIR}/include/kernel -Wl,-Ttext=0x400100 -Wl,-e,_start)
+file(GLOB USERSPACE_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/userspace/*.cpp)
+set(USERSPACE_PROGRAMS)
+foreach(SOURCE ${USERSPACE_SOURCES})
+    get_filename_component(PROGRAM ${SOURCE} NAME_WE)
+    add_custom_command(OUTPUT initrd/bin/${PROGRAM}
+        COMMAND ${CMAKE_COMMAND} -E make_directory initrd/bin
+        COMMAND ${CMAKE_CXX_COMPILER} ${USERSPACE_FLAGS} ${SOURCE} -o initrd/bin/${PROGRAM}
+        DEPENDS ${SOURCE})
+    list(APPEND USERSPACE_PROGRAMS initrd/bin/${PROGRAM})
+endforeach()
+
 # The initrd is a USTAR file loaded as a Multiboot-2 module. The kernel requires modules to
 # start and end on a page boundary, so we use a blocking factor of 8 (8 * 512 = 4KiB).
 # Files are stored under initrd/, so they are opened as e.g. "initrd/hello.txt".
@@ -27,8 +42,9 @@ set(TARGET_DIR ${CMAKE_CURRENT_SOURCE_DIR}/targets/x86_64)
 file(GLOB_RECURSE INITRD_FILES CONFIGURE_DEPENDS RELATIVE ${TARGET_DIR} ${TARGET_DIR}/initrd/*)
 list(TRANSFORM INITRD_FILES PREPEND ${TARGET_DIR}/ OUTPUT_VARIABLE INITRD_DEPENDS)
 add_custom_command(OUTPUT initrd.tar
-    COMMAND ${CMAKE_COMMAND} -E env COPYFILE_DISABLE=1 tar --format=ustar -b 8 -cf ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar -C ${TARGET_DIR} ${INITRD_FILES}
-    DEPENDS ${INITRD_DEPENDS})
+    COMMAND ${CMAKE_COMMAND} -E env COPYFILE_DISABLE=1 tar --format=ustar -b 8 -cf ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
+        -C ${TARGET_DIR} ${INITRD_FILES} -C ${CMAKE_CURRENT_BINARY_DIR} ${USERSPACE_PROGRAMS}
+    DEPENDS ${INITRD_DEPENDS} ${USERSPACE_PROGRAMS})
 
 find_program(GRUB_MKRESCUE NAMES grub-mkrescue i686-elf-grub-mkrescue REQUIRED)
 add_custom_command(OUTPUT cOS.iso

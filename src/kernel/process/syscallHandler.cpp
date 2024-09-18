@@ -4,6 +4,8 @@
 
 // TODO: Validate these syscalls so that everything is checked, as the arguments are from ring 3 and
 // a broken/malicious program could cause a kernel crash
+
+static constexpr uint64_t USER_ADDRESS_LIMIT = 0x0000800000000000;
 // TODO: Reimplement vmmap/vmumap syscalls to allow for file mapping
 
 uint64_t sleep_for_syscall(uint64_t duration)
@@ -23,46 +25,70 @@ uint64_t vmumap_syscall(uint64_t addr, uint64_t len)
     return -1;
 }
 
+// Arguments from ring 3 must not point into kernel memory, which starts in the higher half.
+bool is_user_address(uint64_t address, uint64_t length)
+{
+    return address < USER_ADDRESS_LIMIT && length <= USER_ADDRESS_LIMIT - address;
+}
+
 uint64_t fopen_syscall(uint64_t filename, uint64_t flags)
 {
-    /*auto process = Processes::Scheduler::instance()->get_current_process();
-    int i = 0;
-    auto fd = process->openFileDescriptors.first();
-    for (; !fd.is_end(); ++fd)
+    if (!is_user_address(filename, 1)) { return -1; }
+    auto vnode = Filesystem::VirtualFilesystemManager::instance().open_file((char*)filename, flags);
+    if (!vnode || !(vnode->flags & Filesystem::VirtualFilesystemNode::VFS_FILE))
     {
-        if (fd->fd != i) { break; }
-        i++;
+        if (vnode) { delete vnode; }
+        return -1;
     }
-    auto vnode = Filesystem::VirtualFilesystemManager::instance()->open_file((char*)filename, flags);
-    if (!vnode) {return -1;}
-    Filesystem::taskfd pfd;
-    pfd.fd = i;
-    pfd.node = vnode;
-    pfd.offset = 0;
-    process->openFileDescriptors.insert(pfd, fd);
-    
-    return i;*/
-    return -1;
+    Filesystem::taskfd taskFileDescriptor;
+    taskFileDescriptor.node = vnode;
+    taskFileDescriptor.offset = 0;
+
+    // The file descriptor is the ID of the entry in the task's file descriptor table.
+    Task::TaskManager::instance().lock();
+    auto& fileDescriptorTable = *Task::TaskManager::instance().get_current_task_pointer()->get_file_descriptor_table();
+    auto entry = fileDescriptorTable.insert(taskFileDescriptor);
+    entry->last.fd = entry->first;
+    auto fd = entry->first;
+    Task::TaskManager::instance().unlock();
+    return fd;
 }
 
 uint64_t fread_syscall(uint64_t fd, uint64_t buf, uint64_t count)
 {
-    /*auto process = Processes::Scheduler::instance()->get_current_process();
-    auto cfd = Processes::ProcessManager::instance()->get_pfd(fd, process);
-    if (cfd->fd != fd) { return -1; }
-    return Filesystem::VirtualFilesystemManager::instance()->read(cfd->node, cfd->offset, count, (void*)buf);*/
-    return -1;
+    if (!is_user_address(buf, count)) { return -1; }
+    Task::TaskManager::instance().lock();
+    auto& fileDescriptorTable = *Task::TaskManager::instance().get_current_task_pointer()->get_file_descriptor_table();
+    auto entry = fileDescriptorTable.get(fd);
+    if (entry.is_end())
+    {
+        Task::TaskManager::instance().unlock();
+        return -1;
+    }
+    // Read from the current offset, but not past the end of the file.
+    auto length = Filesystem::VirtualFilesystemManager::instance().filelen(entry->last.node);
+    if (entry->last.offset + count > length) { count = length - entry->last.offset; }
+    auto bytesRead = Filesystem::VirtualFilesystemManager::instance().read(entry->last.node, entry->last.offset, count, (void*)buf);
+    entry->last.offset += bytesRead;
+    Task::TaskManager::instance().unlock();
+    return bytesRead;
 }
 
 uint64_t fclose_syscall(uint64_t fd)
 {
-    /*auto process = Processes::Scheduler::instance()->get_current_process();
-    auto cfd = Processes::ProcessManager::instance()->get_pfd(fd, process);
-    if (cfd->fd != fd) { return -1; }
-    // We should close the file here, but we only have an initrd mounted at the moment
-    process->openFileDescriptors.remove(cfd);
-    return 0;*/
-    return -1;
+    Task::TaskManager::instance().lock();
+    auto& fileDescriptorTable = *Task::TaskManager::instance().get_current_task_pointer()->get_file_descriptor_table();
+    auto entry = fileDescriptorTable.get(fd);
+    if (entry.is_end())
+    {
+        Task::TaskManager::instance().unlock();
+        return -1;
+    }
+    // We only have an initrd mounted at the moment, so closing a file only frees its node.
+    delete entry->last.node;
+    fileDescriptorTable.remove(fd);
+    Task::TaskManager::instance().unlock();
+    return 0;
 }
 
 uint64_t eregister_syscall(uint64_t event, uint64_t param)
