@@ -131,3 +131,78 @@ namespace Script
     private:
         Expression* m_expression;
     };
+
+    class VarStatement : public Statement
+    {
+    public:
+        VarStatement(uint64_t line, char* name, Expression* initialiser) : Statement(line), m_name(name), m_initialiser(initialiser) {}
+        ~VarStatement() { delete[] m_name; delete m_initialiser; }
+        Statement::Result execute(Interpreter& interpreter);
+    private:
+        char* m_name;
+        Expression* m_initialiser;
+    };
+
+    class BlockStatement : public Statement
+    {
+    public:
+        BlockStatement(uint64_t line) : Statement(line) {}
+        ~BlockStatement();
+        Statement::Result execute(Interpreter& interpreter);
+        void add_statement(Statement* statement) { m_statements.append(statement); }
+    private:
+        Common::DoublyLinkedList<Statement*> m_statements;
+    };
+
+    class IfStatement : public Statement
+    {
+    public:
+        IfStatement(uint64_t line, Expression* condition, Statement* thenBranch, Statement* elseBranch) : Statement(line), m_condition(condition), m_thenBranch(thenBranch), m_elseBranch(elseBranch) {}
+        ~IfStatement() { delete m_condition; delete m_thenBranch; delete m_elseBranch; }
+        Statement::Result execute(Interpreter& interpreter);
+    private:
+        Expression* m_condition;
+        Statement* m_thenBranch;
+        Statement* m_elseBranch;
+    };
+
+    class WhileStatement : public Statement
+    {
+    public:
+        WhileStatement(uint64_t line, Expression* condition, Statement* body) : Statement(line), m_condition(condition), m_body(body) {}
+        ~WhileStatement() { delete m_condition; delete m_body; }
+        Statement::Result execute(Interpreter& interpreter);
+    private:
+        Expression* m_condition;
+        Statement* m_body;
+    };
+
+    class ReturnStatement : public Statement
+    {
+    public:
+        ReturnStatement(uint64_t line, Expression* value) : Statement(line), m_value(value) {}
+        ~ReturnStatement() { delete m_value; }
+        Statement::Result execute(Interpreter& interpreter);
+    private:
+        Expression* m_value;
+    };
+
+    class FunctionStatement : public Statement
+    {
+    public:
+        FunctionStatement(uint64_t line, char* name, BlockStatement* body) : Statement(line), m_name(name), m_body(body) {}
+        ~FunctionStatement();
+        Statement::Result execute(Interpreter& interpreter);
+        void add_parameter(char* parameter) { m_parameters.append(parameter); }
+        char* get_name() { return m_name; }
+        Common::DoublyLinkedList<char*>& get_parameters() { return m_parameters; }
+        BlockStatement* get_body() { return m_body; }
+        void set_body(BlockStatement* body) { m_body = body; }
+    private:
+        char* m_name;
+        Common::DoublyLinkedList<char*> m_parameters;
+        BlockStatement* m_body;
+    };
+}
+
+#endif
