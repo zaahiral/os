@@ -96,6 +96,8 @@ namespace Filesystem
         uint64_t write(VirtualFilesystemNode* vnode, uint64_t offset, uint64_t count, void *buf);
         // Get item in directory node.
         VirtualFilesystemNode* finddir(VirtualFilesystemNode* vnode, char* filename);
+        // Get the entry at an index in a directory node, or nullptr past the last entry.
+        VirtualFilesystemDirectoryEntry* readdir(VirtualFilesystemNode* vnode, uint64_t index);
         uint64_t filelen(VirtualFilesystemNode* vnode);
     private:
         VirtualFilesystemManager() { }
