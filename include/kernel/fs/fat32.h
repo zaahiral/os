@@ -42,3 +42,35 @@ namespace Filesystem
         uint16_t fsInfoSector;
     } __attribute__((packed));
 
+    struct FAT32DirectoryEntry
+    {
+        // Names are stored as 8 characters and a 3 character extension, padded with spaces.
+        char name[11];
+        uint8_t attributes;
+        uint8_t reserved;
+        uint8_t creationTimeTenths;
+        uint16_t creationTime;
+        uint16_t creationDate;
+        uint16_t accessedDate;
+        uint16_t firstClusterHigh;
+        uint16_t modificationTime;
+        uint16_t modificationDate;
+        uint16_t firstClusterLow;
+        uint32_t size;
+    } __attribute__((packed));
+
+    // A driver for FAT32 filesystems on the ATA disk, which supports reading, writing and creating files with 8.3 names.
+    // A node's inode number is the position of its directory entry on the disk, and the root directory has inode 0.
+    class FAT32Driver : VFSDriver
+    {
+    public:
+        static FAT32Driver& instance()
+        {
+            static FAT32Driver instance;
+            return instance;
+        }
+        FAT32Driver(FAT32Driver const&) = delete;
+        void operator=(FAT32Driver const&) = delete;
+        // Read the boot sector and mount the filesystem at the given name, and return false if it is not FAT32.
+        bool mount(const char* mountPoint);
+
