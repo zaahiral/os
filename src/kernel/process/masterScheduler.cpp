@@ -16,7 +16,9 @@ namespace Task
 
     Task* MasterScheduler::get_task_from_tid(TaskID tid)
     {
-        return &m_taskHashmap.find(tid)->last;
+        auto it = m_taskHashmap.find(tid);
+        if (it.is_end()) { return nullptr; }
+        return &it->last;
     }
 
     TaskID MasterScheduler::get_current_task()

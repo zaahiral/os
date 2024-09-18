@@ -13,6 +13,7 @@
 #include "network/arp.h"
 #include "gui/desktop.h"
 #include "script/interpreter.h"
+#include "loader/elf.h"
 
 namespace Shell
 {
@@ -144,6 +145,7 @@ namespace Shell
         else if (!strcmp(m_line, "gui")) { gui_command(); }
         else if (!strcmp(m_line, "run")) { run_file_command(argument); }
         else if (!strcmp(m_line, "cs")) { script_command(argument); }
+        else if (!strcmp(m_line, "exec")) { exec_command(argument); }
         else if (!strcmp(m_line, "reboot")) { reboot_command(); }
         else
         {
@@ -167,6 +169,7 @@ namespace Shell
         printf("gui              Open the graphical desktop.\n");
         printf("run <file>       Run a cScript file, such as initrd/scripts/fibonacci.cs.\n");
         printf("cs <code>        Run one line of cScript, such as cs print(6 * 7);\n");
+        printf("exec <program>   Run a user-space program from initrd/bin, such as exec hello.\n");
         printf("reboot           Restart the computer.\n");
     }
 
@@ -321,6 +324,34 @@ namespace Shell
     {
         Script::Interpreter interpreter(m_tid, m_keyboardEventDescriptor);
         interpreter.run(source);
+    }
+
+    void KernelShell::exec_command(char* program)
+    {
+        // A program name without a directory is looked up in initrd/bin.
+        char path[SHELL_MAX_LINE_LENGTH + 12];
+        bool hasDirectory = false;
+        for (char* c = program; *c; c++) { if (*c == '/') { hasDirectory = true; } }
+        strcpy(path, hasDirectory ? (char*)"" : (char*)"initrd/bin/");
+        strcpy(path + strlen(path), program);
+
+        auto file = Filesystem::VirtualFilesystemManager::instance().open_file(path, 0);
+        if (!file || !(file->flags & Filesystem::VirtualFilesystemNode::VFS_FILE))
+        {
+            printf("No such program: ");
+            printf(path);
+            printf("\n");
+            if (file) { delete file; }
+            return;
+        }
+        delete file;
+
+        auto tid = Loader::spawn_user_program(path);
+        auto exitCode = (int64_t)Task::TaskManager::instance().wait_for_task(tid);
+        printf("Exited with code ");
+        if (exitCode < 0) { printf("-"); exitCode = -exitCode; }
+        printf(exitCode);
+        printf(".\n");
     }
 
     void KernelShell::reboot_command()

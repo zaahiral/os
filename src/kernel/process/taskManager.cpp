@@ -56,6 +56,11 @@ namespace Task
         return create_new_task(SharableTaskResource<Memory::RegionableVirtualAddressSpace>(Memory::RegionableVirtualAddressSpace(Memory::MemoryManager::instance().get_main_address_space())), SharableTaskResource<FileDescriptorTable>(FileDescriptorTable()), SharableTaskResource<EventDescriptorTable>(EventDescriptorTable()), taskPriority);
     }
 
+    Task TaskManager::create_new_user_task(uint64_t taskPriority)
+    {
+        return create_new_task(SharableTaskResource<Memory::RegionableVirtualAddressSpace>(Memory::RegionableVirtualAddressSpace(Memory::MemoryManager::instance().create_user_address_space())), SharableTaskResource<FileDescriptorTable>(FileDescriptorTable()), SharableTaskResource<EventDescriptorTable>(EventDescriptorTable()), taskPriority);
+    }
+
     void TaskManager::switch_to_task(Task* task)
     {
         // Acquire spinlock if we do not already have it.
@@ -217,6 +222,42 @@ namespace Task
     {
         if (!m_isActive) { return; }
         TaskManager::instance().block_task();
+    }
+
+    void TaskManager::exit_task(uint64_t exitCode)
+    {
+        m_spinlock.acquire();
+        auto task = get_current_task_pointer();
+        task->m_hasExited = true;
+        task->m_exitCode = exitCode;
+        auto waitingTask = task->m_waitingTask;
+        m_spinlock.release();
+        if (waitingTask) { unblock_task(waitingTask); }
+
+        // TODO: Free the task's kernel stack and memory, which are kept for now.
+        while (1) { block_task(); }
+    }
+
+    uint64_t TaskManager::wait_for_task(TaskID tid)
+    {
+        m_spinlock.acquire();
+        auto task = m_scheduler->get_task_from_tid(tid);
+        if (!task || tid == get_current_task())
+        {
+            m_spinlock.release();
+            return -1;
+        }
+        // If the task has not exited yet, we block until it wakes us as it exits.
+        if (!task->m_hasExited)
+        {
+            task->m_waitingTask = get_current_task();
+            block_task();
+            m_spinlock.acquire();
+            task = m_scheduler->get_task_from_tid(tid);
+        }
+        auto exitCode = task->m_exitCode;
+        m_spinlock.release();
+        return exitCode;
     }
 
     uint64_t TaskManager::add_ed(void* eventSender, void* param, TaskID taskID)

@@ -11,5 +11,6 @@ extern "C" void _start()
 
     syscall(SYSCALL_DPRINTF, (uint64_t)"Read from initrd/hello.txt: ");
     syscall(SYSCALL_DPRINTF, (uint64_t)buffer);
-    while (1);
+    // The exit code is the number of bytes read.
+    syscall(SYSCALL_EXIT, length);
 }

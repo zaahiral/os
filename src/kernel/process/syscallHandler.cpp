@@ -1,5 +1,6 @@
 #include "process/syscallHandler.h"
 #include "process/taskManager.h"
+#include "loader/elf.h"
 #include "print.h"
 
 // TODO: Validate these syscalls so that everything is checked, as the arguments are from ring 3 and
@@ -91,6 +92,26 @@ uint64_t fclose_syscall(uint64_t fd)
     return 0;
 }
 
+uint64_t exit_syscall(uint64_t exitCode)
+{
+    Task::TaskManager::instance().exit_task(exitCode);
+    return 0;
+}
+
+uint64_t spawn_syscall(uint64_t path)
+{
+    if (!is_user_address(path, 1)) { return -1; }
+    auto file = Filesystem::VirtualFilesystemManager::instance().open_file((char*)path, 0);
+    if (!file) { return -1; }
+    delete file;
+    return Loader::spawn_user_program((char*)path);
+}
+
+uint64_t wait_syscall(uint64_t tid)
+{
+    return Task::TaskManager::instance().wait_for_task(tid);
+}
+
 uint64_t eregister_syscall(uint64_t event, uint64_t param)
 {
     /*auto process = Processes::Scheduler::instance()->get_current_process();
@@ -156,6 +177,12 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         return eread_syscall(arg1, arg2, arg3);
         case SYSCALL_SLEEP_FOR:
         return sleep_for_syscall(arg1);
+        case SYSCALL_EXIT:
+        return exit_syscall(arg1);
+        case SYSCALL_SPAWN:
+        return spawn_syscall(arg1);
+        case SYSCALL_WAIT:
+        return wait_syscall(arg1);
         case 99:
         printf(arg1);
         return 0;

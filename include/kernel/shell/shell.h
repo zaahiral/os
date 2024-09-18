@@ -39,6 +39,7 @@ namespace Shell
         void gui_command();
         void run_file_command(char* path);
         void script_command(char* source);
+        void exec_command(char* program);
         void reboot_command();
     };
 }

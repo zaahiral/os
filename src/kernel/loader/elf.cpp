@@ -1,4 +1,6 @@
 #include "loader/elf.h"
+#include "libc/string.h"
+#include "process/taskManager.h"
 
 namespace Loader
 {
@@ -6,6 +8,7 @@ namespace Loader
         This is a loader for ELF-64 executables - refer to the ELF-64 Specification: https://uclibc.org/docs/elf-64-gen.pdf
     */
    extern "C" void start_userspace_task_iretq(void* entryPoint, void* kstack);
+   extern "C" void start_userspace_task_sysret(uint64_t entryPoint, uint64_t userStackPointer);
 
     bool check_elf_header_ident(Elf64_Ehdr* header)
     {
@@ -46,13 +49,23 @@ namespace Loader
         return table + offset;
     }
 
-    void prepare_elf(char* path, Task::Task* task)
+    bool prepare_elf(char* path, Task::Task* task)
     {
         // Load the ELF file into memory.
         auto fd = Filesystem::VirtualFilesystemManager::instance().open_file(path, 0);
+        if (!fd || !(fd->flags & Filesystem::VirtualFilesystemNode::VFS_FILE))
+        {
+            if (fd) { delete fd; }
+            return false;
+        }
         auto elfFile = reinterpret_cast<Elf64_Ehdr*>(kmalloc(Filesystem::VirtualFilesystemManager::instance().filelen(fd), 0));
         Filesystem::VirtualFilesystemManager::instance().read(fd, 0, Filesystem::VirtualFilesystemManager::instance().filelen(fd), elfFile);
-        if (!check_elf_header_ident(elfFile) || !check_elf_header_support(elfFile)) { return; }
+        delete fd;
+        if (!check_elf_header_ident(elfFile) || !check_elf_header_support(elfFile))
+        {
+            kfree(elfFile);
+            return false;
+        }
 
         // Iterate through ELF headers.
         for (uint8_t* idx = (uint8_t*)(((uint64_t)elfFile)+elfFile->e_shoff); (uint64_t)idx < ((uint64_t)elfFile)+elfFile->e_shoff+elfFile->e_shentsize * elfFile->e_shnum; idx += elfFile->e_shentsize)
@@ -87,8 +100,8 @@ namespace Loader
         // We copy the ELF file to 0x400000 for the libc.
         memcpy((void*)0x400000, elfFile, sizeof(Elf64_Ehdr));
 
-        // Allocate a 16KiB stack at 0x1000000.
-        for (uint8_t* userStackPointer = (uint8_t*)0x1000000; userStackPointer < (uint8_t*)(0x1000000 + Memory::PAGE_4KiB*4); userStackPointer += Memory::PAGE_4KiB)
+        // Allocate the program's stack.
+        for (uint8_t* userStackPointer = (uint8_t*)USER_STACK_BASE; userStackPointer < (uint8_t*)(USER_STACK_BASE + USER_STACK_SIZE); userStackPointer += Memory::PAGE_4KiB)
         {
             if (!Memory::MemoryManager::instance().get_physical_address(userStackPointer, task->get_tlTable()).get())
             {
@@ -98,8 +111,36 @@ namespace Loader
                 Memory::MemoryManager::instance().alloc_page(request, task->get_tlTable());
             }
         }
-        kfree(elfFile);
+        // The entry point must be read before the ELF file is freed.
         task->set_entry_point((void*)(elfFile->e_entry));
-        //vfs->close_file(file);
+        kfree(elfFile);
+        return true;
+    }
+
+    void user_program_task()
+    {
+        Task::TaskManager::instance().lock();
+        auto task = Task::TaskManager::instance().get_current_task_pointer();
+        auto path = static_cast<char*>(task->get_argument());
+        bool isLoaded = prepare_elf(path, task);
+        auto entryPoint = task->get_entry_point();
+        delete[] path;
+        Task::TaskManager::instance().unlock();
+
+        // A program that cannot be loaded exits straight away with an error code.
+        if (!isLoaded) { Task::TaskManager::instance().exit_task(-1); }
+        start_userspace_task_sysret((uint64_t)entryPoint, USER_STACK_BASE + USER_STACK_SIZE);
+    }
+
+    Task::TaskID spawn_user_program(const char* path)
+    {
+        // The task keeps its own copy of the path, which it frees once the program is loaded.
+        auto argument = new char[strlen(path) + 1];
+        strcpy(argument, (char*)path);
+        auto task = Task::TaskManager::instance().create_new_user_task();
+        task.set_entry_point((void*)& user_program_task);
+        task.set_argument(argument);
+        Task::TaskManager::instance().add_task(task);
+        return task.get_task_id();
     }
 }

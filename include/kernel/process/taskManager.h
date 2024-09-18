@@ -29,6 +29,8 @@ namespace Task
         Task create_new_task(SharableTaskResource<Memory::RegionableVirtualAddressSpace> tlTable, SharableTaskResource<FileDescriptorTable> openFileDescriptors,
                     SharableTaskResource<EventDescriptorTable> openEventDescriptors, uint64_t taskPriority = 512);
         Task create_new_kernel_task(uint64_t taskPriority = 512);
+        // User-space programs each have their own address space, so that they cannot overwrite each other.
+        Task create_new_user_task(uint64_t taskPriority = 512);
         // Add an event descriptor to a task.
         uint64_t add_ed(void* eventSender, void* param, TaskID task);
         // Remove an event descriptor from a task.
@@ -49,6 +51,10 @@ namespace Task
         static bool is_spinlock_acquired(); // need to check current cpu
         static bool is_scheduler_changing_task();
         static void terminate_task();
+        // End the current task and wake the task waiting for it, if there is one. This does not return.
+        void exit_task(uint64_t exitCode);
+        // Block until a task exits, and return its exit code.
+        uint64_t wait_for_task(TaskID tid);
         // Put current task to sleep until a later time.
         void sleep_until(uint64_t time);
         // Put current task to sleep for a duration.

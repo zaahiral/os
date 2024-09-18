@@ -884,6 +884,14 @@ To test networking, I will use QEMU’s command line to save a dump of network c
    <td>The program prints the contents of the file. 
    </td>
   </tr>
+  <tr>
+   <td>4.8 
+   </td>
+   <td>User-space programs can be started from the shell, and can start other programs and wait for them to exit. Each program has its own address space. This is tested by running programs with the <code>exec</code> command, including one that starts another program and prints its exit code. 
+   </td>
+   <td>Each program runs, and its exit code is returned to the program or shell waiting for it. 
+   </td>
+  </tr>
 </table>
 
 
@@ -1837,11 +1845,12 @@ void elf_task()
 ```cpp
 #include "process/syscall.h"
 
-extern "C" void _start() 
-{ 
-    syscall(SYSCALL_DPRINTF, (uint64_t)"Hello from userspace!"); 
-    while(1); 
-} 
+// Prints a message using the system call interface.
+extern "C" void _start()
+{
+    syscall(SYSCALL_DPRINTF, (uint64_t)"Hello from userspace!\n");
+    syscall(SYSCALL_EXIT, 0);
+}
 ```
 
 <p align="center">
@@ -1905,12 +1914,60 @@ extern "C" void _start()
 
     syscall(SYSCALL_DPRINTF, (uint64_t)"Read from initrd/hello.txt: ");
     syscall(SYSCALL_DPRINTF, (uint64_t)buffer);
-    while (1);
+    // The exit code is the number of bytes read.
+    syscall(SYSCALL_EXIT, length);
 }
 ```
 
 <p align="center">
 <i>ELF executable source code in <code>userspace/readfile.cpp</code> for test 4.7, which is loaded with the kernel code from test 4.4. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-4.8.png" alt="Screenshot of running user-space programs from the shell for test 4.8.">
+</p>
+
+<p align="center">
+<i>Screenshot of running user-space programs from the shell for test 4.8. </i>
+</p>
+
+```cpp
+#include "process/syscall.h"
+
+// Writes a number into a buffer as decimal digits.
+void format_number(uint64_t number, char* buffer)
+{
+    char digits[21];
+    uint64_t count = 0;
+    do
+    {
+        digits[count++] = '0' + number % 10;
+        number /= 10;
+    }
+    while (number);
+    for (uint64_t i = 0; i < count; i++)
+        buffer[i] = digits[count - 1 - i];
+    buffer[count] = '\0';
+}
+
+// Starts another program, waits for it to exit, and prints its exit code.
+extern "C" void _start()
+{
+    syscall(SYSCALL_DPRINTF, (uint64_t)"Starting initrd/bin/readfile.\n");
+    uint64_t tid = syscall(SYSCALL_SPAWN, (uint64_t)"initrd/bin/readfile");
+    uint64_t exitCode = syscall(SYSCALL_WAIT, tid);
+
+    char number[21];
+    format_number(exitCode, number);
+    syscall(SYSCALL_DPRINTF, (uint64_t)"readfile exited with code ");
+    syscall(SYSCALL_DPRINTF, (uint64_t)number);
+    syscall(SYSCALL_DPRINTF, (uint64_t)".\n");
+    syscall(SYSCALL_EXIT, 0);
+}
+```
+
+<p align="center">
+<i>ELF executable source code in <code>userspace/launch.cpp</code> for test 4.8, which starts <code>readfile</code> and waits for it to exit. </i>
 </p>
 
 <p align="center">

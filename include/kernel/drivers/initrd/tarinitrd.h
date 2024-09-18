@@ -73,6 +73,8 @@ class TarReader : VFSDriver
     void vfsdriver_close(VirtualFilesystemNode*);
     VirtualFilesystemDirectoryEntry* vfsdriver_readdir(VirtualFilesystemNode*, uint64_t index);
     VirtualFilesystemNode* vfsdriver_finddir(VirtualFilesystemNode*, char* name);
+    // The initrd is read-only, so files cannot be created in it.
+    VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode*, char* name) { return nullptr; }
     uint64_t vfsdriver_filelen(VirtualFilesystemNode*);
 private:
     static constexpr uint64_t INITRD_ADDRESS = 0xFFFFFFFFA0000000;

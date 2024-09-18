@@ -120,9 +120,18 @@ enum sh_type
 
 namespace Loader
 {
+    // Each program has a 16KiB stack at 0x1000000.
+    static constexpr uint64_t USER_STACK_BASE = 0x1000000;
+    static constexpr uint64_t USER_STACK_SIZE = 0x4000;
+
     bool check_elf_header_ident(Elf64_Ehdr *header);
     bool check_elf_header_support(Elf64_Ehdr *header);
-    void prepare_elf(char* path, Task::Task* task);
+    // Load an ELF file into a task's address space, and return false if it is not a valid executable.
+    bool prepare_elf(char* path, Task::Task* task);
+    // The entry point of a task that runs a user-space program, whose path is the task's argument.
+    void user_program_task();
+    // Start a user-space program in a new task, and return the task's ID.
+    Task::TaskID spawn_user_program(const char* path);
 } 
 
 #endif

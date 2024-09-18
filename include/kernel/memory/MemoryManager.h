@@ -131,6 +131,11 @@ namespace Memory {
     class PML4Table : public GenericTable
     {
     public:
+        // Copy the kernel's half of another table, so that the kernel is mapped in every address space.
+        void copy_kernel_entries(PML4Table* table)
+        {
+            for (int i = ENTRIES_PER_TABLE / 2; i < ENTRIES_PER_TABLE; i++) { m_entries[i] = table->m_entries[i]; }
+        }
         void request_virtual_map(VirtualMemoryMapRequest request);
         void request_virtual_unmap(VirtualMemoryUnmapRequest request);
         PhysicalAddress get_physical_address(VirtualAddress virtualAddress);
@@ -220,6 +225,16 @@ namespace Memory {
                 request_virtual_map(request, addressSpace);
             }
             return addressSpace;
+        }
+
+        // Create an address space for a user-space program, which shares the kernel's half with the main address space.
+        VirtualAddressSpace create_user_address_space()
+        {
+            auto physicalAddress = alloc_physical_block();
+            auto table = static_cast<PML4Table*>(VirtualAddress(physicalAddress).get());
+            memset(table, 0, sizeof(PML4Table));
+            table->copy_kernel_entries(static_cast<PML4Table*>(VirtualAddress(get_main_address_space().get_physical_address()).get()));
+            return VirtualAddressSpace(physicalAddress);
         }
 
         void destroy_virtual_address_space(VirtualAddressSpace& addressSpace)

@@ -120,6 +120,8 @@ namespace Task
         void set_tlTable(Memory::RegionableVirtualAddressSpace& tlTable) { *m_tlTable = tlTable; }
         void* get_entry_point() { return m_entryPoint; }
         void set_entry_point(void* entryPoint) { m_entryPoint = entryPoint; }
+        void* get_argument() { return m_argument; }
+        void set_argument(void* argument) { m_argument = argument; }
         uint64_t get_priority() { return m_priority; }
         void set_priority(uint64_t priority) { m_priority = priority; }
         SharableTaskResource<FileDescriptorTable>& get_file_descriptor_table() { return m_openFileDescriptors; }
@@ -135,7 +137,12 @@ namespace Task
         void* m_kstack;
         uint64_t m_tid = 0;
         void* m_entryPoint;
+        void* m_argument = nullptr;
         TaskState m_state = NOT_STARTED;
+        // When the task exits, its exit code is kept for the task that waits for it.
+        bool m_hasExited = false;
+        uint64_t m_exitCode = 0;
+        TaskID m_waitingTask = 0;
         uint64_t m_priority;
     };
 

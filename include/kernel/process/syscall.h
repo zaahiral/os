@@ -15,6 +15,9 @@
 #define SYSCALL_EREAD 11
 #define SYSCALL_SLEEP_FOR 12
 #define SYSCALL_GETTID 13
+#define SYSCALL_EXIT 14
+#define SYSCALL_SPAWN 15
+#define SYSCALL_WAIT 16
 
 uint64_t syscall(uint64_t num)
 {
