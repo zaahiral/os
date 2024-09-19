@@ -42,7 +42,7 @@ cmake --build build
 cmake --build build --target run
 ```
 
-This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card. Files placed in `targets/x86_64/initrd` are packed into the initial ramdisk, and the kernel opens them by their path in the ramdisk, such as `initrd/hello.txt`. User-space programs in `userspace` are compiled into `initrd/bin`.
+This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card. Files placed in `targets/x86_64/initrd` are packed into the initial ramdisk, and the kernel opens them by their path in the ramdisk, such as `initrd/hello.txt`. User-space programs in `userspace` are compiled into `initrd/bin`, and cOS boots into the user shell, `initrd/bin/sh`.
 
 The build also makes `build/disk.img`, a FAT32 disk containing the files in `targets/x86_64/disk`, which the kernel mounts at `disk/`. Files that cOS writes to the disk are kept between runs, and can be read on the host with mtools, for example `mtype -i build/disk.img ::notes.txt`.
 
@@ -905,7 +905,7 @@ To test networking, I will use QEMU’s command line to save a dump of network c
   <tr>
    <td>4.8 
    </td>
-   <td>User-space programs can be started from the shell, and can start other programs and wait for them to exit. Each program has its own address space. This is tested by running programs with the <code>exec</code> command, including one that starts another program and prints its exit code. 
+   <td>User-space programs can be started from the shell, and can start other programs and wait for them to exit. Each program has its own address space. This is tested by typing the names of programs into the shell, including one that starts another program and prints its exit code. 
    </td>
    <td>Each program runs, and its exit code is returned to the program or shell waiting for it. 
    </td>
@@ -923,7 +923,7 @@ To test networking, I will use QEMU’s command line to save a dump of network c
 
 ### Shell and Scripting 
 
-The shell and the cScript interpreter are tested by typing commands into the shell, and running scripts placed in the initrd.
+The shell and the cScript interpreter are tested by typing commands into the shell, and running scripts placed in the initrd. The user shell, <code>sh</code>, starts at boot. The <code>gui</code>, <code>run</code> and <code>cs</code> commands belong to the kernel shell, which is reached by typing <code>exit</code> in the user shell.
 
 <table>
   <tr>
@@ -980,6 +980,14 @@ The shell and the cScript interpreter are tested by typing commands into the she
    <td>A running script can be stopped by pressing Escape. This is tested by pressing Escape during a script that counts down once a second. 
    </td>
    <td>The script stops and the shell continues to run. 
+   </td>
+  </tr>
+  <tr>
+   <td>5.7 
+   </td>
+   <td>The shell is an ordinary user-space program in <code>initrd/bin</code>. It reads the keyboard through the event system calls and runs programs with <code>spawn</code> and <code>wait</code>. This is tested by listing <code>initrd/bin</code>, leaving the user shell with <code>exit</code>, and starting it again from the kernel shell with <code>exec sh</code>. 
+   </td>
+   <td><code>sh</code> is listed with the other programs, <code>exit</code> returns to the kernel shell, and the user shell starts again. 
    </td>
   </tr>
 </table>
@@ -2271,6 +2279,14 @@ print("Lift off!");
 
 <p align="center">
 <i>Contents of initrd/scripts/countdown.cs for test 5.6. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-5.7.png" alt="Screenshot of leaving and restarting the user shell for test 5.7.">
+</p>
+
+<p align="center">
+<i>Screenshot of leaving and restarting the user shell for test 5.7. The shell's source is in <code>userspace/sh.cpp</code>. </i>
 </p>
 
 
