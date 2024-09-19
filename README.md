@@ -34,7 +34,7 @@ The project began as a way to understand computer architecture and operating-sys
 
 ## Building and Running
 
-You will need an `x86_64-elf` cross-compiler, NASM, CMake, GRUB (`grub-mkrescue` for the `i386-pc` platform), xorriso and QEMU. The Dockerfile in `buildenv` builds the cross-compiler; on macOS, Homebrew has all of them (`x86_64-elf-gcc nasm cmake i686-elf-grub xorriso qemu`).
+You will need an `x86_64-elf` cross-compiler, NASM, CMake, GRUB (`grub-mkrescue` for the `i386-pc` platform), xorriso, mtools and QEMU. The Dockerfile in `buildenv` builds the cross-compiler; on macOS, Homebrew has all of them (`x86_64-elf-gcc nasm cmake i686-elf-grub xorriso mtools qemu`).
 
 ```
 cmake -B build
@@ -42,7 +42,9 @@ cmake --build build
 cmake --build build --target run
 ```
 
-This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card. Files placed in `targets/x86_64/initrd` are packed into the initial ramdisk, and the kernel opens them by their path in the ramdisk, such as `initrd/hello.txt`.
+This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card. Files placed in `targets/x86_64/initrd` are packed into the initial ramdisk, and the kernel opens them by their path in the ramdisk, such as `initrd/hello.txt`. User-space programs in `userspace` are compiled into `initrd/bin`.
+
+The build also makes `build/disk.img`, a FAT32 disk containing the files in `targets/x86_64/disk`, which the kernel mounts at `disk/`. Files that cOS writes to the disk are kept between runs, and can be read on the host with mtools, for example `mtype -i build/disk.img ::notes.txt`.
 
 ## Project Specification
 
@@ -735,6 +737,22 @@ I will also test that the kernel manages hardware resources properly. This inclu
    <td>The keyboard scan-codes are printed on the screen by the task. 
    </td>
   </tr>
+  <tr>
+   <td>2.7 
+   </td>
+   <td>Reading files from a FAT32 disk. This is tested by placing a file on the disk image when it is built, and listing and reading it from the shell. 
+   </td>
+   <td>The file is listed and its contents are printed. 
+   </td>
+  </tr>
+  <tr>
+   <td>2.8 
+   </td>
+   <td>Writing files to a FAT32 disk. This is tested by writing to files from the shell and from a user-space program, restarting the computer, and reading the files again, both in cOS and on the host. 
+   </td>
+   <td>The written lines are read back after restarting, and the host reads the same contents. 
+   </td>
+  </tr>
 </table>
 
 ### Networking 
@@ -1316,6 +1334,65 @@ auto eventDescriptor = Events::EventDispatcher::instance().register_event_listen
 
 <p align="center">
 <i>Kernel code used to receive keyboard events for test 2.6.</i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-2.7.png" alt="Screenshot of listing and reading the FAT32 disk for test 2.7.">
+</p>
+
+<p align="center">
+<i>Screenshot of listing and reading the FAT32 disk for test 2.7. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-2.8a.png" alt="Screenshot of writing to files on the disk from the shell and a user-space program for test 2.8.">
+</p>
+
+<p align="center">
+<i>Screenshot of writing to files on the disk from the shell and a user-space program for test 2.8. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-2.8b.png" alt="Screenshot of reading the files again after restarting for test 2.8.">
+</p>
+
+<p align="center">
+<i>Screenshot of reading the files again after restarting for test 2.8. </i>
+</p>
+
+```
+$ mtype -i build/disk.img ::notes.txt ::log.txt
+Hello from cOS
+Written by a user-space program.
+Written by a user-space program.
+```
+
+<p align="center">
+<i>Reading the same files on the host with mtools for test 2.8. </i>
+</p>
+
+```cpp
+#include "process/syscall.h"
+
+// Adds a line to a file on the disk with the file system calls, creating the file if it does not exist.
+extern "C" void _start()
+{
+    const char line[] = "Written by a user-space program.\n";
+    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)"disk/log.txt", FILE_CREATE | FILE_APPEND);
+    if (fd == (uint64_t)-1)
+    {
+        syscall(SYSCALL_DPRINTF, (uint64_t)"Could not open disk/log.txt.\n");
+        syscall(SYSCALL_EXIT, 1);
+    }
+    syscall(SYSCALL_FWRITE, fd, (uint64_t)line, sizeof(line) - 1);
+    syscall(SYSCALL_FCLOSE, fd);
+    syscall(SYSCALL_DPRINTF, (uint64_t)"Added a line to disk/log.txt.\n");
+    syscall(SYSCALL_EXIT, 0);
+}
+```
+
+<p align="center">
+<i>ELF executable source code in <code>userspace/writefile.cpp</code> for test 2.8. </i>
 </p>
 
 ```
