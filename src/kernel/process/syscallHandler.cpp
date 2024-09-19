@@ -35,7 +35,9 @@ bool is_user_address(uint64_t address, uint64_t length)
 uint64_t fopen_syscall(uint64_t filename, uint64_t flags)
 {
     if (!is_user_address(filename, 1)) { return -1; }
-    auto vnode = Filesystem::VirtualFilesystemManager::instance().open_file((char*)filename, flags);
+    // With FILE_CREATE, a file that does not exist is created.
+    auto vnode = (flags & FILE_CREATE) ? Filesystem::VirtualFilesystemManager::instance().create_file((char*)filename)
+                                        : Filesystem::VirtualFilesystemManager::instance().open_file((char*)filename, flags);
     if (!vnode || !(vnode->flags & Filesystem::VirtualFilesystemNode::VFS_FILE))
     {
         if (vnode) { delete vnode; }
@@ -43,7 +45,8 @@ uint64_t fopen_syscall(uint64_t filename, uint64_t flags)
     }
     Filesystem::taskfd taskFileDescriptor;
     taskFileDescriptor.node = vnode;
-    taskFileDescriptor.offset = 0;
+    // With FILE_APPEND, writes start at the end of the file.
+    taskFileDescriptor.offset = (flags & FILE_APPEND) ? Filesystem::VirtualFilesystemManager::instance().filelen(vnode) : 0;
 
     // The file descriptor is the ID of the entry in the task's file descriptor table.
     Task::TaskManager::instance().lock();
@@ -73,6 +76,23 @@ uint64_t fread_syscall(uint64_t fd, uint64_t buf, uint64_t count)
     entry->last.offset += bytesRead;
     Task::TaskManager::instance().unlock();
     return bytesRead;
+}
+
+uint64_t fwrite_syscall(uint64_t fd, uint64_t buf, uint64_t count)
+{
+    if (!is_user_address(buf, count)) { return -1; }
+    Task::TaskManager::instance().lock();
+    auto& fileDescriptorTable = *Task::TaskManager::instance().get_current_task_pointer()->get_file_descriptor_table();
+    auto entry = fileDescriptorTable.get(fd);
+    if (entry.is_end())
+    {
+        Task::TaskManager::instance().unlock();
+        return -1;
+    }
+    auto bytesWritten = Filesystem::VirtualFilesystemManager::instance().write(entry->last.node, entry->last.offset, count, (void*)buf);
+    entry->last.offset += bytesWritten;
+    Task::TaskManager::instance().unlock();
+    return bytesWritten;
 }
 
 uint64_t fclose_syscall(uint64_t fd)
@@ -167,6 +187,8 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         return fread_syscall(arg1, arg2, arg3);
         case SYSCALL_FCLOSE:
         return fclose_syscall(arg1);
+        case SYSCALL_FWRITE:
+        return fwrite_syscall(arg1, arg2, arg3);
         case SYSCALL_EREGISTER:
         return eregister_syscall(arg1, arg2);
         case SYSCALL_ELISTEN:
