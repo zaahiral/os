@@ -122,6 +122,12 @@ namespace Task
         void set_entry_point(void* entryPoint) { m_entryPoint = entryPoint; }
         void* get_argument() { return m_argument; }
         void set_argument(void* argument) { m_argument = argument; }
+        uint64_t get_heap_start() { return m_heapStart; }
+        void set_heap_start(uint64_t heapStart) { m_heapStart = heapStart; }
+        uint64_t get_program_break() { return m_programBreak; }
+        void set_program_break(uint64_t programBreak) { m_programBreak = programBreak; }
+        uint64_t get_next_map_address() { return m_nextMapAddress; }
+        void set_next_map_address(uint64_t nextMapAddress) { m_nextMapAddress = nextMapAddress; }
         uint64_t get_priority() { return m_priority; }
         void set_priority(uint64_t priority) { m_priority = priority; }
         SharableTaskResource<FileDescriptorTable>& get_file_descriptor_table() { return m_openFileDescriptors; }
@@ -138,6 +144,10 @@ namespace Task
         uint64_t m_tid = 0;
         void* m_entryPoint;
         void* m_argument = nullptr;
+        // A user-space program's heap runs from the heap start to the program break, and mmap hands out memory above it.
+        uint64_t m_heapStart = 0;
+        uint64_t m_programBreak = 0;
+        uint64_t m_nextMapAddress = 0;
         TaskState m_state = NOT_STARTED;
         // When the task exits, its exit code is kept for the task that waits for it.
         bool m_hasExited = false;

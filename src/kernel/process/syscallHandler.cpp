@@ -7,7 +7,7 @@
 // a broken/malicious program could cause a kernel crash
 
 static constexpr uint64_t USER_ADDRESS_LIMIT = 0x0000800000000000;
-// TODO: Reimplement vmmap/vmumap syscalls to allow for file mapping
+// TODO: Allow vmmap to map files, not only anonymous memory
 
 uint64_t sleep_for_syscall(uint64_t duration)
 {
@@ -15,21 +15,83 @@ uint64_t sleep_for_syscall(uint64_t duration)
     return 0;
 }
 
-uint64_t vmmap_syscall(uint64_t* addr, uint64_t len, uint64_t hint, uint64_t flags)
-{
-    //Task::TaskManager::instance().syscall_mmap(addr, len, hint, flags);
-    return -1;
-}
-
-uint64_t vmumap_syscall(uint64_t addr, uint64_t len)
-{
-    return -1;
-}
-
 // Arguments from ring 3 must not point into kernel memory, which starts in the higher half.
 bool is_user_address(uint64_t address, uint64_t length)
 {
     return address < USER_ADDRESS_LIMIT && length <= USER_ADDRESS_LIMIT - address;
+}
+
+// Map a zeroed, writable page into a user-space program's address space, unless it is already mapped.
+// The program's address space is the current one, so the page can be cleared through its own address.
+void map_user_page(uint64_t address, Memory::RegionableVirtualAddressSpace& addressSpace)
+{
+    if (!Memory::MemoryManager::instance().get_physical_address(address, addressSpace).get())
+    {
+        Memory::MemoryManager::instance().alloc_page(Memory::VirtualMemoryAllocationRequest(Memory::VirtualAddress(address), true, true), addressSpace);
+    }
+    memset((void*)address, 0, Memory::PAGE_4KiB);
+}
+
+void unmap_user_page(uint64_t address, Memory::RegionableVirtualAddressSpace& addressSpace)
+{
+    if (Memory::MemoryManager::instance().get_physical_address(address, addressSpace).get())
+    {
+        Memory::MemoryManager::instance().free_page(Memory::VirtualMemoryFreeRequest(Memory::VirtualAddress(address)), addressSpace);
+    }
+}
+
+// Move the program break, which is the end of the program's heap, and return the new break.
+// A break of 0 returns the current break, and a break outside the heap leaves it unchanged.
+uint64_t brk_syscall(uint64_t newBreak)
+{
+    Task::TaskManager::instance().lock();
+    auto task = Task::TaskManager::instance().get_current_task_pointer();
+    auto oldBreak = task->get_program_break();
+    if (!newBreak || newBreak < task->get_heap_start() || newBreak > Loader::USER_STACK_BASE)
+    {
+        Task::TaskManager::instance().unlock();
+        return oldBreak;
+    }
+    // Map the pages up to the new break, or free the pages above it.
+    for (uint64_t page = BYTE_ALIGN_UP(oldBreak, Memory::PAGE_4KiB); page < BYTE_ALIGN_UP(newBreak, Memory::PAGE_4KiB); page += Memory::PAGE_4KiB)
+        map_user_page(page, task->get_tlTable());
+    for (uint64_t page = BYTE_ALIGN_UP(newBreak, Memory::PAGE_4KiB); page < BYTE_ALIGN_UP(oldBreak, Memory::PAGE_4KiB); page += Memory::PAGE_4KiB)
+        unmap_user_page(page, task->get_tlTable());
+    task->set_program_break(newBreak);
+    Task::TaskManager::instance().unlock();
+    return newBreak;
+}
+
+// Map zeroed memory of at least the given length, and return its address. Addresses are not reused after munmap.
+uint64_t vmmap_syscall(uint64_t length)
+{
+    if (!length) { return -1; }
+    Task::TaskManager::instance().lock();
+    auto task = Task::TaskManager::instance().get_current_task_pointer();
+    auto address = task->get_next_map_address();
+    length = BYTE_ALIGN_UP(length, Memory::PAGE_4KiB);
+    if (!is_user_address(address, length))
+    {
+        Task::TaskManager::instance().unlock();
+        return -1;
+    }
+    for (uint64_t page = address; page < address + length; page += Memory::PAGE_4KiB)
+        map_user_page(page, task->get_tlTable());
+    task->set_next_map_address(address + length);
+    Task::TaskManager::instance().unlock();
+    return address;
+}
+
+uint64_t vmumap_syscall(uint64_t address, uint64_t length)
+{
+    // Only memory from mmap can be unmapped, and it must start on a page boundary.
+    if (address < Loader::USER_MAP_BASE || !CHECK_ALIGN(address, Memory::PAGE_4KiB) || !is_user_address(address, length)) { return -1; }
+    Task::TaskManager::instance().lock();
+    auto task = Task::TaskManager::instance().get_current_task_pointer();
+    for (uint64_t page = address; page < address + length; page += Memory::PAGE_4KiB)
+        unmap_user_page(page, task->get_tlTable());
+    Task::TaskManager::instance().unlock();
+    return 0;
 }
 
 uint64_t fopen_syscall(uint64_t filename, uint64_t flags)
@@ -178,7 +240,7 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         case SYSCALL_DPRINTF:
         return printtoscreen_syscall(arg1);
         case SYSCALL_VMMAP:
-        return vmmap_syscall(reinterpret_cast<uint64_t*>(arg1), arg2, arg3, arg4);
+        return vmmap_syscall(arg1);
         case SYSCALL_VMUNMAP:
         return vmumap_syscall(arg1, arg2);
         case SYSCALL_FOPEN:
@@ -205,6 +267,8 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         return spawn_syscall(arg1);
         case SYSCALL_WAIT:
         return wait_syscall(arg1);
+        case SYSCALL_BRK:
+        return brk_syscall(arg1);
         case 99:
         printf(arg1);
         return 0;

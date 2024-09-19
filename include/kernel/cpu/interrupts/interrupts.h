@@ -91,9 +91,9 @@ namespace CPU {
         void initialise();
         void enable_interrupts();
         void disable_interrupts();
-        void internal_interrupt_handler(uint8_t interrupt);
-        static void handle_noerr_interrupt(uint8_t interrupt);
-        static void handle_err_interrupt(uint8_t interrupt, uint8_t err);
+        void internal_interrupt_handler(uint8_t interrupt, uint64_t codeSegment);
+        static void handle_noerr_interrupt(uint8_t interrupt, uint64_t codeSegment);
+        static void handle_err_interrupt(uint8_t interrupt, uint8_t err, uint64_t codeSegment);
     private:
         InterruptManager() {}
         void add_interrupt_handler(InterruptHandler* handler, uint8_t interrupt);

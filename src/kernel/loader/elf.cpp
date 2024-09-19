@@ -67,6 +67,9 @@ namespace Loader
             return false;
         }
 
+        // The heap starts on the page after the end of the last section.
+        uint64_t programEnd = 0;
+
         // Iterate through ELF headers.
         for (uint8_t* idx = (uint8_t*)(((uint64_t)elfFile)+elfFile->e_shoff); (uint64_t)idx < ((uint64_t)elfFile)+elfFile->e_shoff+elfFile->e_shentsize * elfFile->e_shnum; idx += elfFile->e_shentsize)
         {
@@ -75,6 +78,7 @@ namespace Loader
             if (sectionHeader->sh_addr)
             {
                 // Allocate pages for the section.
+                if (sectionHeader->sh_addr + sectionHeader->sh_size > programEnd) { programEnd = sectionHeader->sh_addr + sectionHeader->sh_size; }
                 task->get_tlTable().regions.append(Memory::MappedRegion((void*)BYTE_ALIGN_DOWN(sectionHeader->sh_addr, Memory::PAGE_4KiB), (void*)BYTE_ALIGN_DOWN(sectionHeader->sh_addr, Memory::PAGE_4KiB) + sectionHeader->sh_size + Memory::PAGE_4KiB*2));
                 for (uint8_t* page = (uint8_t*)(BYTE_ALIGN_DOWN(sectionHeader->sh_addr, Memory::PAGE_4KiB)); (uint64_t)page < BYTE_ALIGN_DOWN(sectionHeader->sh_addr, Memory::PAGE_4KiB) + sectionHeader->sh_size + Memory::PAGE_4KiB*2; page+= Memory::PAGE_4KiB)
                 {
@@ -111,6 +115,10 @@ namespace Loader
                 Memory::MemoryManager::instance().alloc_page(request, task->get_tlTable());
             }
         }
+        task->set_heap_start(BYTE_ALIGN_UP(programEnd, Memory::PAGE_4KiB));
+        task->set_program_break(task->get_heap_start());
+        task->set_next_map_address(USER_MAP_BASE);
+
         // The entry point must be read before the ELF file is freed.
         task->set_entry_point((void*)(elfFile->e_entry));
         kfree(elfFile);

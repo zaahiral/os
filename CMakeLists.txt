@@ -23,15 +23,16 @@ set_target_properties(kernel.bin PROPERTIES LINK_DEPENDS ${LINKER_SCRIPT})
 # User-space programs are compiled as static ELF executables into initrd/bin. They are linked at 0x400100,
 # as the ELF loader copies the ELF header to 0x400000.
 set(USERSPACE_FLAGS -ffreestanding -nostdlib -static -fno-pie -mno-red-zone -mno-sse -fno-exceptions -fno-rtti
-    -I${CMAKE_CURRENT_SOURCE_DIR}/include/kernel -Wl,-Ttext=0x400100 -Wl,-e,_start)
+    -I${CMAKE_CURRENT_SOURCE_DIR}/include/kernel -I${CMAKE_CURRENT_SOURCE_DIR}/userspace/include -Wl,-Ttext=0x400100 -Wl,-e,_start)
 file(GLOB USERSPACE_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/userspace/*.cpp)
+file(GLOB USERSPACE_HEADERS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/userspace/include/*.h)
 set(USERSPACE_PROGRAMS)
 foreach(SOURCE ${USERSPACE_SOURCES})
     get_filename_component(PROGRAM ${SOURCE} NAME_WE)
     add_custom_command(OUTPUT initrd/bin/${PROGRAM}
         COMMAND ${CMAKE_COMMAND} -E make_directory initrd/bin
         COMMAND ${CMAKE_CXX_COMPILER} ${USERSPACE_FLAGS} ${SOURCE} -o initrd/bin/${PROGRAM}
-        DEPENDS ${SOURCE})
+        DEPENDS ${SOURCE} ${USERSPACE_HEADERS})
     list(APPEND USERSPACE_PROGRAMS initrd/bin/${PROGRAM})
 endforeach()
 

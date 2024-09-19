@@ -1,7 +1,7 @@
 section .text
 global isr_table
-extern _ZN3CPU16InterruptManager20handle_err_interruptEhh
-extern _ZN3CPU16InterruptManager22handle_noerr_interruptEh
+extern _ZN3CPU16InterruptManager20handle_err_interruptEhhy
+extern _ZN3CPU16InterruptManager22handle_noerr_interruptEhy
 extern isr_def_32
 
 %macro pushaq 0
@@ -45,7 +45,9 @@ isr_def_%+%1:
     pop rsi
     pushaq
     mov rdi, %1
-    call _ZN3CPU16InterruptManager20handle_err_interruptEhh
+    ; Pass the interrupted code segment, which is above the 15 saved registers and the return address.
+    mov rdx, [rsp + 16*8]
+    call _ZN3CPU16InterruptManager20handle_err_interruptEhhy
     popaq
     iretq
 %endmacro
@@ -54,7 +56,9 @@ isr_def_%+%1:
 isr_def_%+%1:
     pushaq
     mov rdi, %1
-    call _ZN3CPU16InterruptManager22handle_noerr_interruptEh
+    ; Pass the interrupted code segment, which is above the 15 saved registers and the return address.
+    mov rsi, [rsp + 16*8]
+    call _ZN3CPU16InterruptManager22handle_noerr_interruptEhy
     popaq
     iretq
 %endmacro

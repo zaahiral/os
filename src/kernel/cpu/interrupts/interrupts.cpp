@@ -1,4 +1,5 @@
 #include "cpu/interrupts/interrupts.h"
+#include "process/taskManager.h"
 #include "memory/MemoryManager.h"
 
 extern void* isr_table[];
@@ -76,8 +77,26 @@ namespace CPU {
         m_isPresentInTable = true;
     }
 
-    void InterruptManager::internal_interrupt_handler(uint8_t interrupt)
+    void InterruptManager::internal_interrupt_handler(uint8_t interrupt, uint64_t codeSegment)
     {
+        // An exception in ring 3 was caused by a user-space program, so we stop the program rather than the kernel.
+        if (interrupt < MAX_EXCEPTIONS_IRQ && (codeSegment & 3) == 3)
+        {
+            if (interrupt == 14)
+            {
+                uint64_t pageFaultAddress;
+                asm volatile ("mov %%cr2, %0" : "=r" (pageFaultAddress));
+                printf("\nThe program was stopped by a page fault at address ");
+                printf(pageFaultAddress);
+            }
+            else
+            {
+                printf("\nThe program was stopped by exception ");
+                printf(interrupt);
+            }
+            printf(".\n");
+            Task::TaskManager::instance().exit_task(-1);
+        }
         switch (interrupt)
         {
             case 14:
@@ -112,14 +131,14 @@ namespace CPU {
         }
     }
 
-    void InterruptManager::handle_noerr_interrupt(uint8_t interrupt)
+    void InterruptManager::handle_noerr_interrupt(uint8_t interrupt, uint64_t codeSegment)
     {
-        InterruptManager::instance().internal_interrupt_handler(interrupt);
+        InterruptManager::instance().internal_interrupt_handler(interrupt, codeSegment);
     }
 
-    void InterruptManager::handle_err_interrupt(uint8_t interrupt, uint8_t err)
+    void InterruptManager::handle_err_interrupt(uint8_t interrupt, uint8_t err, uint64_t codeSegment)
     {
-        InterruptManager::instance().internal_interrupt_handler(interrupt);
+        InterruptManager::instance().internal_interrupt_handler(interrupt, codeSegment);
     }
 
     void InterruptManager::enable_interrupts()

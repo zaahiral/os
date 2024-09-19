@@ -123,6 +123,8 @@ namespace Loader
     // Each program has a 16KiB stack at 0x1000000.
     static constexpr uint64_t USER_STACK_BASE = 0x1000000;
     static constexpr uint64_t USER_STACK_SIZE = 0x4000;
+    // Memory from mmap starts at 1GiB, well away from the program, its heap and its stack.
+    static constexpr uint64_t USER_MAP_BASE = 0x40000000;
 
     bool check_elf_header_ident(Elf64_Ehdr *header);
     bool check_elf_header_support(Elf64_Ehdr *header);

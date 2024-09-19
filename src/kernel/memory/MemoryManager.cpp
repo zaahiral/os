@@ -352,5 +352,6 @@ namespace Memory {
     {
         auto physicalAddress = get_physical_address(request.virtualAddress, addressSpace);
         request_virtual_unmap(VirtualMemoryUnmapRequest(request), addressSpace);
+        free_physical_block(physicalAddress);
     }
 }
