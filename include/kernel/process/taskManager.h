@@ -66,6 +66,8 @@ namespace Task
         bool m_schedulerChangingTask = false;
         uint64_t m_numberOfTasks;
         void switch_to_task(Task* task);
+        // Free everything that an exited task owns, and remove it from the scheduler.
+        void reap_task(TaskID tid);
         Spinlock m_spinlock;
         struct SleepingTask
         {

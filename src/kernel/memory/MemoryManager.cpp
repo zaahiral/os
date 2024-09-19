@@ -348,6 +348,46 @@ namespace Memory {
         request_virtual_map(VirtualMemoryMapRequest(request, physicalAddress), addressSpace);
     }
 
+    namespace
+    {
+        // Get the table that an entry points to, through the physical memory map.
+        GenericTable* get_table(GenericEntry& entry) { return static_cast<GenericTable*>(VirtualAddress(entry.get_frame()).get()); }
+    }
+
+    void MemoryManager::destroy_user_address_space(VirtualAddressSpace& addressSpace)
+    {
+        // Walk the four levels of tables in the user half, freeing each present page, then each table.
+        auto pml4 = static_cast<GenericTable*>(VirtualAddress(addressSpace.get_physical_address()).get());
+        for (int i = 0; i < GenericTable::ENTRIES_PER_TABLE / 2; i++)
+        {
+            if (!pml4->entry(i).is_present()) { continue; }
+            auto pageDirectoryPointerTable = get_table(pml4->entry(i));
+            for (int j = 0; j < GenericTable::ENTRIES_PER_TABLE; j++)
+            {
+                if (!pageDirectoryPointerTable->entry(j).is_present()) { continue; }
+                auto pageDirectory = get_table(pageDirectoryPointerTable->entry(j));
+                for (int k = 0; k < GenericTable::ENTRIES_PER_TABLE; k++)
+                {
+                    if (!pageDirectory->entry(k).is_present()) { continue; }
+                    auto pageTable = get_table(pageDirectory->entry(k));
+                    for (int l = 0; l < GenericTable::ENTRIES_PER_TABLE; l++)
+                    {
+                        if (pageTable->entry(l).is_present()) { free_physical_block(pageTable->entry(l).get_frame()); }
+                    }
+                    free_physical_block(pageDirectory->entry(k).get_frame());
+                }
+                free_physical_block(pageDirectoryPointerTable->entry(j).get_frame());
+            }
+            free_physical_block(pml4->entry(i).get_frame());
+        }
+        free_physical_block(addressSpace.get_physical_address());
+    }
+
+    uint64_t MemoryManager::get_free_memory()
+    {
+        return m_physicalBitmap.count_unset() * PHYSICAL_BLOCK_SIZE;
+    }
+
     void MemoryManager::free_page(VirtualMemoryFreeRequest request, VirtualAddressSpace& addressSpace)
     {
         auto physicalAddress = get_physical_address(request.virtualAddress, addressSpace);

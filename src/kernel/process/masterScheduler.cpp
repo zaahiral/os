@@ -106,6 +106,10 @@ namespace Task
         add_task_to_queue(tid);
     }
 
-    void MasterScheduler::remove_task(TaskID tid) {}
+    // The task must not be queued, which is true of an exited task, as it has blocked.
+    void MasterScheduler::remove_task(TaskID tid)
+    {
+        m_taskHashmap.remove(tid);
+    }
 
 }

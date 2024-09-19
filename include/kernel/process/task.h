@@ -96,6 +96,8 @@ namespace Task
             return m_hashmap.find(m_nextAvailID++);
         }
         void remove(uint64_t id) { m_hashmap.remove(id); }
+        // IDs are given out in order, so every descriptor in the table has an ID below this.
+        uint64_t get_id_limit() { return m_nextAvailID; }
         Common::DoublyLinkedListIterator<Common::Pair<uint64_t, T>> get(uint64_t descriptorID) { return m_hashmap.find(descriptorID); }
     private:
         uint64_t m_nextAvailID = 0;

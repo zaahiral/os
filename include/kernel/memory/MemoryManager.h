@@ -115,6 +115,8 @@ namespace Memory {
     class GenericTable
     {
     public:
+        static constexpr int ENTRIES_PER_TABLE = 512;
+        GenericEntry& entry(int index) { return m_entries[index]; }
         bool is_table_empty()
         {
             uint64_t* p = (uint64_t*)m_entries;
@@ -124,7 +126,6 @@ namespace Memory {
             return true;
         }
     protected:
-        static constexpr int ENTRIES_PER_TABLE = 512;
         GenericEntry m_entries[ENTRIES_PER_TABLE] = {};
     };
 
@@ -237,6 +238,12 @@ namespace Memory {
             return VirtualAddressSpace(physicalAddress);
         }
 
+        // Free every page and page table in the user half of an address space, and its top level table.
+        // The kernel half is shared with the main address space, so it is left alone.
+        void destroy_user_address_space(VirtualAddressSpace& addressSpace);
+        // Count the free physical memory in bytes.
+        uint64_t get_free_memory();
+
         void destroy_virtual_address_space(VirtualAddressSpace& addressSpace)
         {
             free_physical_block(addressSpace.get_physical_address().get());
@@ -290,6 +297,16 @@ namespace Memory {
             {
                 if (bit >= m_bitmapSize * CHAR_BIT) { return; }
                 m_bitmap[bit / CHAR_BIT] &= ~(1 << (bit % CHAR_BIT));
+            }
+
+            uint64_t count_unset()
+            {
+                uint64_t count = 0;
+                for (uint64_t bit = 0; bit < m_bitmapSize * CHAR_BIT; bit++)
+                {
+                    if (!(m_bitmap[bit / CHAR_BIT] & (1 << (bit % CHAR_BIT)))) { count++; }
+                }
+                return count;
             }
 
             uint64_t first_unset()

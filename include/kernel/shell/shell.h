@@ -33,6 +33,7 @@ namespace Shell
         void ls_command(char* path);
         void cat_command(char* path);
         void uptime_command();
+        void mem_command();
         void pci_command();
         void net_command();
         void arp_command(char* address);
