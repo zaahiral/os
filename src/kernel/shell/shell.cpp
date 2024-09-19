@@ -146,6 +146,7 @@ namespace Shell
         else if (!strcmp(m_line, "run")) { run_file_command(argument); }
         else if (!strcmp(m_line, "cs")) { script_command(argument); }
         else if (!strcmp(m_line, "exec")) { exec_command(argument); }
+        else if (!strcmp(m_line, "write")) { write_command(argument); }
         else if (!strcmp(m_line, "reboot")) { reboot_command(); }
         else
         {
@@ -162,6 +163,7 @@ namespace Shell
         printf("echo <text>      Print the text.\n");
         printf("ls [directory]   List a directory in the initrd, initrd by default.\n");
         printf("cat <file>       Print a file, such as initrd/hello.txt.\n");
+        printf("write <file> <text>  Add a line to a file on the disk, such as write disk/notes.txt hi.\n");
         printf("uptime           Print the time since boot.\n");
         printf("pci              List the devices on the PCI bus.\n");
         printf("net              Print the network card's MAC and IP addresses.\n");
@@ -352,6 +354,36 @@ namespace Shell
         if (exitCode < 0) { printf("-"); exitCode = -exitCode; }
         printf(exitCode);
         printf(".\n");
+    }
+
+    void KernelShell::write_command(char* argument)
+    {
+        // The file name ends at the first space, and the rest of the line is the text.
+        char* text = argument;
+        while (*text && *text != ' ') { text++; }
+        if (*text) { *text++ = '\0'; }
+        if (!argument[0])
+        {
+            printf("Usage: write <file> <text>, such as write disk/notes.txt hello\n");
+            return;
+        }
+
+        auto file = Filesystem::VirtualFilesystemManager::instance().create_file(argument);
+        if (!file || !(file->flags & Filesystem::VirtualFilesystemNode::VFS_FILE))
+        {
+            printf("Cannot write to ");
+            printf(argument);
+            printf(", only files on the disk can be written to.\n");
+            if (file) { delete file; }
+            return;
+        }
+        // The text is added to the end of the file as a new line.
+        auto length = Filesystem::VirtualFilesystemManager::instance().filelen(file);
+        auto textLength = strlen(text);
+        text[textLength] = '\n';
+        Filesystem::VirtualFilesystemManager::instance().write(file, length, textLength + 1, text);
+        text[textLength] = '\0';
+        delete file;
     }
 
     void KernelShell::reboot_command()
