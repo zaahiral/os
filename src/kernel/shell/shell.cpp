@@ -2,6 +2,7 @@
 #include "print.h"
 #include "libc/string.h"
 #include "memory/kheap.h"
+#include "memory/MemoryManager.h"
 #include "cpu/io/io.h"
 #include "cpu/io/pci.h"
 #include "cpu/io/pit.h"
@@ -141,6 +142,7 @@ namespace Shell
         else if (!strcmp(m_line, "ls")) { ls_command(*argument ? argument : (char*)"initrd"); }
         else if (!strcmp(m_line, "cat")) { cat_command(argument); }
         else if (!strcmp(m_line, "uptime")) { uptime_command(); }
+        else if (!strcmp(m_line, "mem")) { mem_command(); }
         else if (!strcmp(m_line, "pci")) { pci_command(); }
         else if (!strcmp(m_line, "net")) { net_command(); }
         else if (!strcmp(m_line, "arp")) { arp_command(argument); }
@@ -167,6 +169,7 @@ namespace Shell
         printf("cat <file>       Print a file, such as initrd/hello.txt.\n");
         printf("write <file> <text>  Add a line to a file on the disk, such as write disk/notes.txt hi.\n");
         printf("uptime           Print the time since boot.\n");
+        printf("mem              Print the amount of free memory.\n");
         printf("pci              List the devices on the PCI bus.\n");
         printf("net              Print the network card's MAC and IP addresses.\n");
         printf("arp <address>    Resolve an IP address to a MAC address, such as 10.0.2.2.\n");
@@ -234,6 +237,13 @@ namespace Shell
         // Print the tenths of a second.
         printf((milliseconds / 100) % 10);
         printf(" seconds.\n");
+    }
+
+    void KernelShell::mem_command()
+    {
+        printf("Free memory: ");
+        printf(Memory::MemoryManager::instance().get_free_memory() / 1024);
+        printf(" KiB\n");
     }
 
     void KernelShell::pci_command()

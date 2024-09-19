@@ -233,11 +233,9 @@ namespace Task
         auto task = get_current_task_pointer();
         task->m_hasExited = true;
         task->m_exitCode = exitCode;
-        auto waitingTask = task->m_waitingTask;
-        m_spinlock.release();
-        if (waitingTask) { unblock_task(waitingTask); }
-
-        // TODO: Free the task's kernel stack and memory, which are kept for now.
+        // The waiting task is woken while we still hold the spinlock, so it cannot run until this task has blocked.
+        // It then frees this task's memory and kernel stack, so this task never runs again.
+        if (task->m_waitingTask) { m_scheduler->unblock_task(task->m_waitingTask); }
         while (1) { block_task(); }
     }
 
@@ -260,7 +258,47 @@ namespace Task
         }
         auto exitCode = task->m_exitCode;
         m_spinlock.release();
+        reap_task(tid);
         return exitCode;
+    }
+
+    void TaskManager::reap_task(TaskID tid)
+    {
+        // Deregistering an event descriptor removes the task from the event sender's queues, such as the keyboard's.
+        // This takes the spinlock itself, so it is done before we acquire it.
+        m_spinlock.acquire();
+        auto eventDescriptorLimit = (*m_scheduler->get_task_from_tid(tid)->m_openEventDescriptors).get_id_limit();
+        m_spinlock.release();
+        for (uint64_t ed = 0; ed < eventDescriptorLimit; ed++)
+        {
+            m_spinlock.acquire();
+            bool isOpen = !(*m_scheduler->get_task_from_tid(tid)->m_openEventDescriptors).get(ed).is_end();
+            m_spinlock.release();
+            if (isOpen) { Events::EventDispatcher::deregister_event_listener(tid, ed); }
+        }
+
+        m_spinlock.acquire();
+        auto task = m_scheduler->get_task_from_tid(tid);
+        // Free the nodes of files that the task did not close.
+        auto& fileDescriptorTable = *task->m_openFileDescriptors;
+        for (uint64_t fd = 0; fd < fileDescriptorTable.get_id_limit(); fd++)
+        {
+            auto entry = fileDescriptorTable.get(fd);
+            if (!entry.is_end()) { delete entry->last.node; }
+        }
+        // A user-space program has its own address space, but a kernel task shares the main one.
+        auto& addressSpace = task->get_tlTable();
+        if (addressSpace.get_physical_address().get() != Memory::MemoryManager::instance().get_main_address_space().get_physical_address().get())
+        {
+            Memory::MemoryManager::instance().destroy_user_address_space(addressSpace);
+        }
+        auto stackTop = reinterpret_cast<uint64_t>(task->get_kernel_stack_top());
+        for (auto page = stackTop - KERNEL_STACK_SIZE; page < stackTop; page += Memory::PAGE_4KiB)
+        {
+            Memory::MemoryManager::instance().free_page(Memory::VirtualMemoryFreeRequest(Memory::VirtualAddress(page)));
+        }
+        m_scheduler->remove_task(tid);
+        m_spinlock.release();
     }
 
     uint64_t TaskManager::add_ed(void* eventSender, void* param, TaskID taskID)
