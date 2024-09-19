@@ -176,7 +176,7 @@ namespace Shell
         printf("gui              Open the graphical desktop.\n");
         printf("run <file>       Run a cScript file, such as initrd/scripts/fibonacci.cs.\n");
         printf("cs <code>        Run one line of cScript, such as cs print(6 * 7);\n");
-        printf("exec <program>   Run a user-space program from initrd/bin, such as exec hello.\n");
+        printf("exec <program>   Run a user-space program from initrd/bin, such as exec cat disk/readme.txt.\n");
         printf("reboot           Restart the computer.\n");
     }
 
@@ -342,6 +342,11 @@ namespace Shell
 
     void KernelShell::exec_command(char* program)
     {
+        // The program's arguments follow its name.
+        char* arguments = program;
+        while (*arguments && *arguments != ' ') { arguments++; }
+        if (*arguments) { *arguments++ = '\0'; }
+
         // A program name without a directory is looked up in initrd/bin.
         char path[SHELL_MAX_LINE_LENGTH + 12];
         bool hasDirectory = false;
@@ -360,7 +365,7 @@ namespace Shell
         }
         delete file;
 
-        auto tid = Loader::spawn_user_program(path);
+        auto tid = Loader::spawn_user_program(path, arguments);
         auto exitCode = (int64_t)Task::TaskManager::instance().wait_for_task(tid);
         // Keys typed while the program ran were meant for it, so we discard them.
         while (Events::EventDispatcher::instance().read_from_event_queue(m_tid, m_keyboardEventDescriptor)) {}

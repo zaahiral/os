@@ -181,13 +181,14 @@ uint64_t exit_syscall(uint64_t exitCode)
     return 0;
 }
 
-uint64_t spawn_syscall(uint64_t path)
+// Start a program, with an optional string of arguments separated by spaces.
+uint64_t spawn_syscall(uint64_t path, uint64_t arguments)
 {
-    if (!is_user_address(path, 1)) { return -1; }
+    if (!is_user_address(path, 1) || (arguments && !is_user_address(arguments, 1))) { return -1; }
     auto file = Filesystem::VirtualFilesystemManager::instance().open_file((char*)path, 0);
     if (!file) { return -1; }
     delete file;
-    return Loader::spawn_user_program((char*)path);
+    return Loader::spawn_user_program((char*)path, (char*)arguments);
 }
 
 uint64_t wait_syscall(uint64_t tid)
@@ -286,7 +287,7 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         case SYSCALL_EXIT:
         return exit_syscall(arg1);
         case SYSCALL_SPAWN:
-        return spawn_syscall(arg1);
+        return spawn_syscall(arg1, arg2);
         case SYSCALL_WAIT:
         return wait_syscall(arg1);
         case SYSCALL_BRK:

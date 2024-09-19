@@ -18,3 +18,13 @@ int64_t spawn(const char* path, const char* arguments = nullptr) { return syscal
 // Wait for a program to exit, and return its exit code.
 int64_t wait(int64_t tid) { return syscall(SYSCALL_WAIT, tid); }
 
+// Move the program break by an amount, and return the old break, or -1 if the heap cannot grow.
+int64_t sbrk(int64_t increment)
+{
+    uint64_t oldBreak = syscall(SYSCALL_BRK, 0);
+    if (!increment) { return oldBreak; }
+    if (syscall(SYSCALL_BRK, oldBreak + increment) != oldBreak + increment) { return -1; }
+    return oldBreak;
+}
+
+#endif
