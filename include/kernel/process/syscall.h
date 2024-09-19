@@ -19,6 +19,8 @@
 #define SYSCALL_SPAWN 15
 #define SYSCALL_WAIT 16
 #define SYSCALL_BRK 17
+#define SYSCALL_READDIR 18
+#define SYSCALL_CLEAR 19
 
 // Flags for SYSCALL_FOPEN.
 #define FILE_CREATE 0x1

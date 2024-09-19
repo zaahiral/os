@@ -120,8 +120,9 @@ namespace Common {
     template <typename T>
     typename BinarySearchTree<T>::TreeNode* BinarySearchTree<T>::minimum_node(TreeNode* node)
     {
-        // Recursively find the minimum node in the tree.
-        if (node->left) { return minimum_node(node->left); }
+        // Find the minimum node by following left branches. This is a loop rather than recursion, as the tree is not
+        // rebalanced and can become a long chain, which would overflow the stack.
+        while (node->left) { node = node->left; }
         return node;
     }
 
@@ -144,13 +145,14 @@ namespace Common {
     template <typename T>
     typename BinarySearchTree<T>::TreeNode* BinarySearchTree<T>::find_node_from_element(T item, TreeNode* node)
     {
-        // Recursively find the node using the ordered subtree property of the binary search tree.
-        if (!node || item == node->value)
-            return node;
-        if (m_lessThanPredicate(item, node->value))
-            return find_node_from_element(item, node->left);
-        else
-            return find_node_from_element(item, node->right);
+        // Find the node using the ordered subtree property of the binary search tree, in a loop for the same reason as minimum_node.
+        while (node && !(item == node->value))
+        {
+            if (m_lessThanPredicate(item, node->value))
+                node = node->left;
+            else
+                node = node->right;
+        }
         return node;
     }
 

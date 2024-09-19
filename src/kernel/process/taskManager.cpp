@@ -20,7 +20,9 @@ namespace Task
     TaskManager::TaskManager()
     {
         enable_syscall_sysret();
-        Memory::MemoryManager::instance().alloc_page(Memory::VirtualMemoryAllocationRequest(Memory::VirtualAddress(START_OF_PROCESS_KSTACKS), true));
+        // The safe stack is used by the scheduler while it changes task, and is as large as a task's kernel stack.
+        for (auto page = START_OF_PROCESS_KSTACKS; page < START_OF_PROCESS_KSTACKS + KERNEL_STACK_SIZE; page += Memory::PAGE_4KiB)
+            Memory::MemoryManager::instance().alloc_page(Memory::VirtualMemoryAllocationRequest(Memory::VirtualAddress(page), true));
         CPU::update_kernel_stack_pointer(get_safe_stack());
         CPU::refresh_task_state_segment();
         m_scheduler = new MasterScheduler();
@@ -40,7 +42,8 @@ namespace Task
         auto stackBottom = (START_OF_PROCESS_KSTACKS + KERNEL_STACK_SIZE * (task.get_task_id()));
 
         // We need to map a safe kernel stack and the task's kernel stack into the task's address space.
-        Memory::MemoryManager::instance().request_virtual_map(Memory::VirtualMemoryMapRequest(Memory::MemoryManager::instance().get_physical_address(START_OF_PROCESS_KSTACKS), Memory::VirtualAddress(START_OF_PROCESS_KSTACKS), true), task.get_tlTable());
+        for (auto page = START_OF_PROCESS_KSTACKS; page < START_OF_PROCESS_KSTACKS + KERNEL_STACK_SIZE; page += Memory::PAGE_4KiB)
+            Memory::MemoryManager::instance().request_virtual_map(Memory::VirtualMemoryMapRequest(Memory::MemoryManager::instance().get_physical_address(page), Memory::VirtualAddress(page), true), task.get_tlTable());
         for (auto page = stackBottom; page < stackBottom + KERNEL_STACK_SIZE; page += Memory::PAGE_4KiB)
         {
             Memory::MemoryManager::instance().alloc_page(Memory::VirtualMemoryAllocationRequest(Memory::VirtualAddress(page), true));
@@ -48,6 +51,7 @@ namespace Task
         }
 
         task.set_kstack(reinterpret_cast<void*>(stackBottom + KERNEL_STACK_SIZE));
+        task.set_kernel_stack_top(reinterpret_cast<void*>(stackBottom + KERNEL_STACK_SIZE));
         return task;
     }
 
@@ -71,7 +75,7 @@ namespace Task
             // If the task has not already been started then we need to fake an iret stack.
             task->m_state = Task::TaskState::READY;
             Memory::MemoryManager::instance().switch_to_address_space(task->get_tlTable());
-            CPU::update_kernel_stack_pointer(task->get_kstack());
+            CPU::update_kernel_stack_pointer(task->get_kernel_stack_top());
             auto entryPoint = task->get_entry_point();
             auto kstack = task->get_kstack();
             m_spinlock.release();
@@ -79,8 +83,7 @@ namespace Task
         }
         else
         {
-            // Update kernel stack pointer but add the size of the iretq stack as this will be popped.
-            CPU::update_kernel_stack_pointer(reinterpret_cast<void*>(reinterpret_cast<uint64_t>(task->get_kstack()) + SIZE_OF_IRETQ_STACK));
+            CPU::update_kernel_stack_pointer(task->get_kernel_stack_top());
             auto tlTable = (uint64_t*)((*(task->m_tlTable)).get_physical_address().get());
             m_spinlock.release();
             return_to_task(tlTable);
@@ -162,7 +165,7 @@ namespace Task
         switch_to_task(m_scheduler->get_task_from_tid(m_scheduler->get_current_task()));
     }
 
-    uint64_t* TaskManager::get_safe_stack() { return reinterpret_cast<uint64_t*>(START_OF_PROCESS_KSTACKS + 0x1000); }
+    uint64_t* TaskManager::get_safe_stack() { return reinterpret_cast<uint64_t*>(START_OF_PROCESS_KSTACKS + KERNEL_STACK_SIZE); }
 
     void TaskManager::save_kstack(void* kstack)
     {

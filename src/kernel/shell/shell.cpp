@@ -81,7 +81,9 @@ namespace Shell
         auto& shell = KernelShell::instance();
         shell.m_tid = Task::TaskManager::instance().get_current_task();
         shell.m_keyboardEventDescriptor = Events::EventDispatcher::instance().register_event_listener(shell.m_tid, "HID/Keyboard", 0);
-        printf("\nWelcome to cOS. Type help for a list of commands.\ncOS> ");
+        // The user-space shell is started first, and the kernel shell takes over when it exits.
+        shell.exec_command((char*)"sh");
+        printf("\nThis is the kernel shell. Type exec sh to return to the user shell.\ncOS> ");
         while (1)
         {
             Events::EventDispatcher::instance().block_event_listen(shell.m_tid, shell.m_keyboardEventDescriptor);
@@ -350,6 +352,8 @@ namespace Shell
 
         auto tid = Loader::spawn_user_program(path);
         auto exitCode = (int64_t)Task::TaskManager::instance().wait_for_task(tid);
+        // Keys typed while the program ran were meant for it, so we discard them.
+        while (Events::EventDispatcher::instance().read_from_event_queue(m_tid, m_keyboardEventDescriptor)) {}
         printf("Exited with code ");
         if (exitCode < 0) { printf("-"); exitCode = -exitCode; }
         printf(exitCode);

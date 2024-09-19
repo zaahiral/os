@@ -1,6 +1,8 @@
 #include "cpu/tss.h"
 #include "print.h"
 
+extern "C" uint64_t syscall_kernel_stack;
+
 namespace CPU {
     extern "C" void asm_flush_tss();
 
@@ -23,5 +25,10 @@ namespace CPU {
 
     void refresh_task_state_segment() { asm_flush_tss(); }
 
-    void update_kernel_stack_pointer(void* stackPointer) { m_tss->set_rsp0(reinterpret_cast<uint64_t>(stackPointer)); } 
+    // The syscall entry point uses the same kernel stack as interrupts from ring 3.
+    void update_kernel_stack_pointer(void* stackPointer)
+    {
+        m_tss->set_rsp0(reinterpret_cast<uint64_t>(stackPointer));
+        syscall_kernel_stack = reinterpret_cast<uint64_t>(stackPointer);
+    }
 }

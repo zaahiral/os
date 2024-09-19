@@ -55,7 +55,8 @@ namespace Common {
 
         void check_shrink()
         {
-            // Check if the number of buckets can be shrunk.
+            // Check if the number of buckets can be shrunk, but always keep at least one bucket.
+            if (m_bucketNum == 1) { return; }
             if (4*m_totalElements/m_bucketNum >= 1 && m_totalElements != 0) { return; }
             m_bucketNum /= 2;
             auto newBuckets = new DoublyLinkedList<Pair<T, U>>[m_bucketNum];

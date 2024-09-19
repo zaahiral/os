@@ -1,6 +1,7 @@
 #include "process/syscallHandler.h"
 #include "process/taskManager.h"
 #include "loader/elf.h"
+#include "event/dispatcher.h"
 #include "print.h"
 
 // TODO: Validate these syscalls so that everything is checked, as the arguments are from ring 3 and
@@ -194,33 +195,54 @@ uint64_t wait_syscall(uint64_t tid)
     return Task::TaskManager::instance().wait_for_task(tid);
 }
 
+// Register the current task to receive messages from an event sender, such as "HID/Keyboard", and return the event descriptor.
 uint64_t eregister_syscall(uint64_t event, uint64_t param)
 {
-    /*auto process = Processes::Scheduler::instance()->get_current_process();
-    return Events::EventDispatcher::register_event_listener(process, (char*)event, (void*)param);*/
-    return -1;
+    if (!is_user_address(event, 1)) { return -1; }
+    return Events::EventDispatcher::register_event_listener(Task::TaskManager::instance().get_current_task(), (char*)event, (void*)param);
 }
 
+// Block until the event sender sends a message, unless one is already waiting.
 uint64_t elisten_syscall(uint64_t ed)
 {
-    /*auto process = Processes::Scheduler::instance()->get_current_process();
-    Events::EventDispatcher::block_event_listen(process, ed);
-    return 1;*/
-    return -1;
+    Events::EventDispatcher::block_event_listen(Task::TaskManager::instance().get_current_task(), ed);
+    return 0;
 }
 
 uint64_t ederegister_syscall(uint64_t ed)
 {
-    /*auto process = Processes::Scheduler::instance()->get_current_process();
-    return Events::EventDispatcher::deregister_event_listener(process, ed);*/
-    return -1;
+    return Events::EventDispatcher::deregister_event_listener(Task::TaskManager::instance().get_current_task(), ed);
 }
 
+// Return the next waiting message, or 0 if there is none. The message is returned directly, so the buffer is not used yet.
 uint64_t eread_syscall(uint64_t ed, uint64_t buf, uint64_t count)
 {
-    /*auto process = Processes::Scheduler::instance()->get_current_process();
-    return Events::EventDispatcher::read_from_event_queue(process, ed);*/
-    return -1;
+    return Events::EventDispatcher::read_from_event_queue(Task::TaskManager::instance().get_current_task(), ed);
+}
+
+// Copy the name of the entry at an index in a directory into a buffer of at least 256 bytes.
+// Returns 1 for a file, 2 for a directory, 0 past the last entry, or -1 if the directory does not exist.
+uint64_t readdir_syscall(uint64_t path, uint64_t index, uint64_t buf)
+{
+    if (!is_user_address(path, 1) || !is_user_address(buf, 256)) { return -1; }
+    auto directory = Filesystem::VirtualFilesystemManager::instance().open_file((char*)path, 0);
+    if (!directory || !(directory->flags & Filesystem::VirtualFilesystemNode::VFS_DIRECTORY))
+    {
+        if (directory) { delete directory; }
+        return -1;
+    }
+    uint64_t result = 0;
+    auto entry = Filesystem::VirtualFilesystemManager::instance().readdir(directory, index);
+    if (entry)
+    {
+        strcpy((char*)buf, entry->name);
+        auto node = Filesystem::VirtualFilesystemManager::instance().finddir(directory, entry->name);
+        result = (node && (node->flags & Filesystem::VirtualFilesystemNode::VFS_DIRECTORY)) ? 2 : 1;
+        if (node) { delete node; }
+        delete entry;
+    }
+    delete directory;
+    return result;
 }
 
 uint64_t printtoscreen_syscall(uint64_t arg1)
@@ -269,6 +291,11 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         return wait_syscall(arg1);
         case SYSCALL_BRK:
         return brk_syscall(arg1);
+        case SYSCALL_READDIR:
+        return readdir_syscall(arg1, arg2, arg3);
+        case SYSCALL_CLEAR:
+        clear_screen();
+        return 0;
         case 99:
         printf(arg1);
         return 0;

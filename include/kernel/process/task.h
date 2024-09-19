@@ -116,6 +116,8 @@ namespace Task
         void set_task_id(TaskID tid) { m_tid = tid; }
         void* get_kstack() { return m_kstack; }
         void set_kstack(void* kstack) { m_kstack = kstack; }
+        void* get_kernel_stack_top() { return m_kernelStackTop; }
+        void set_kernel_stack_top(void* kernelStackTop) { m_kernelStackTop = kernelStackTop; }
         Memory::RegionableVirtualAddressSpace& get_tlTable() { return *m_tlTable; }
         void set_tlTable(Memory::RegionableVirtualAddressSpace& tlTable) { *m_tlTable = tlTable; }
         void* get_entry_point() { return m_entryPoint; }
@@ -141,6 +143,8 @@ namespace Task
         SharableTaskResource<EventDescriptorTable> m_openEventDescriptors;
         void* m_stack;
         void* m_kstack;
+        // The kernel stack is empty whenever the task runs in ring 3, so ring 3 interrupts and system calls start at its top.
+        void* m_kernelStackTop;
         uint64_t m_tid = 0;
         void* m_entryPoint;
         void* m_argument = nullptr;
