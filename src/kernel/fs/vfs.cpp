@@ -54,21 +54,29 @@ namespace Filesystem
 
     VirtualFilesystemNode* VirtualFilesystemManager::open_file(char* filename, uint64_t flags)
     {
-        // Currently we only support one mounted filesystem.
+        char fixedLengthFileName[180];
+        strcpy(fixedLengthFileName, filename);
+
+        // If the first part of the path is a mount point, we start from that filesystem's root and remove the mount point from the path.
+        // Otherwise, we start from the root of the first mounted filesystem.
         Common::DoublyLinkedListIterator<RealFilesystem> filesystem = m_mountedFilesystems.first();
-        for (; !filesystem.is_end(); ++filesystem)
+        for (auto it = m_mountedFilesystems.first(); !it.is_end(); ++it)
         {
-            if (filesystem->m_mountNumber == 0) { break; }
+            uint64_t length = strlen(it->m_mountPoint);
+            if (!length || strncmp(fixedLengthFileName, it->m_mountPoint, length)) { continue; }
+            if (fixedLengthFileName[length] != '/' && fixedLengthFileName[length] != '\0') { continue; }
+            filesystem = it;
+            strcpy(fixedLengthFileName, fixedLengthFileName + length + (fixedLengthFileName[length] == '/'));
+            break;
         }
         if (filesystem.is_end()) { return nullptr; }
 
         // Find the root node of the filesystem from its hashmap
         auto rootnode = filesystem->m_virtualNodeHashmap.find(filesystem->m_rootVirtualNodeNumber)->last;
+        // The root node is a local copy, so if the path names the root itself we return a copy that the caller can free.
+        if (!fixedLengthFileName[0]) { return new VirtualFilesystemNode(rootnode); }
 
         VirtualFilesystemNode* node = &rootnode;
-
-        char fixedLengthFileName[180];
-        strcpy(fixedLengthFileName, filename);
 
         // We traverse through the directory tree and update the file name with the relative path from the current directory.
         while(fixedLengthFileName[0])
@@ -98,7 +106,33 @@ namespace Filesystem
                 if (oldNode->inodeNum != rootnode.inodeNum) { delete oldNode; }
                 fixedLengthFileName[0] = '\0';
             }
+            // A directory in the path does not exist.
+            if (!node) { return nullptr; }
         }
         return node;
+    }
+
+    VirtualFilesystemNode* VirtualFilesystemManager::create_file(char* filename)
+    {
+        // Split the path into the directory and the name of the file to create in it.
+        char directoryName[180];
+        strcpy(directoryName, filename);
+        char* name = directoryName;
+        for (char* p = directoryName; *p; p++)
+        {
+            if (*p == '/') { name = p + 1; }
+        }
+        if (name == directoryName || !*name) { return nullptr; }
+        *(name - 1) = '\0';
+
+        auto directory = open_file(directoryName, 0);
+        if (!directory || !(directory->flags & VirtualFilesystemNode::VFS_DIRECTORY))
+        {
+            if (directory) { delete directory; }
+            return nullptr;
+        }
+        auto file = directory->driver->vfsdriver_create(directory, name);
+        delete directory;
+        return file;
     }
 }

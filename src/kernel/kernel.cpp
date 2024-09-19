@@ -28,6 +28,8 @@
 #include "x86_64.h"
 #include "process/masterScheduler.h"
 #include "shell/shell.h"
+#include "drivers/storage/ata.h"
+#include "fs/fat32.h"
 
 extern "C" void __cxa_pure_virtual() { printf("This should not be called."); }
 
@@ -95,6 +97,10 @@ CPU::set_task_state_segment(static_cast<CPU::TaskStateSegment64*>(Memory::Virtua
     printf("-> Virtual filesystem initialised successfully.\n");
     Filesystem::TarReader::instance().load_initrd();
     printf("-> Read initrd successfully.\n");
+    if (Drivers::ATADriver::instance().is_present() && Filesystem::FAT32Driver::instance().mount("disk"))
+    {
+        printf("-> Mounted the FAT32 disk at disk/.\n");
+    }
     Task::TaskManager::instance();
     Events::EventDispatcher::instance();
     Drivers::KeyboardDriver keyboardDriver;
