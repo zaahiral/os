@@ -20,6 +20,8 @@ namespace Filesystem
         virtual void vfsdriver_close(VirtualFilesystemNode*) = 0;
         virtual VirtualFilesystemDirectoryEntry* vfsdriver_readdir(VirtualFilesystemNode*, uint64_t index) = 0;
         virtual VirtualFilesystemNode* vfsdriver_finddir(VirtualFilesystemNode*, char* name) = 0;
+        // Create a file in a directory node, or return nullptr if the filesystem is read-only.
+        virtual VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode*, char* name) = 0;
         virtual uint64_t vfsdriver_filelen(VirtualFilesystemNode*) = 0;
     };
 
@@ -69,8 +71,10 @@ namespace Filesystem
         VFSDriver* m_driver;
         int m_rootVirtualNodeNumber;
         Common::Hashmap<uint64_t, VirtualFilesystemNode> m_virtualNodeHashmap;
+        // A filesystem with a mount point is reached through paths that start with it, such as disk/notes.txt.
+        const char* m_mountPoint;
     public:
-        RealFilesystem(VirtualFilesystemNode rootNode, VFSDriver* driver) : m_rootVirtualNodeNumber(rootNode.inodeNum), m_driver(driver)
+        RealFilesystem(VirtualFilesystemNode rootNode, VFSDriver* driver, const char* mountPoint = "") : m_rootVirtualNodeNumber(rootNode.inodeNum), m_driver(driver), m_mountPoint(mountPoint)
         {
             m_virtualNodeHashmap.insert(rootNode.inodeNum, rootNode);
         }
@@ -90,6 +94,8 @@ namespace Filesystem
         void unregister_filesystem(int mountNum);
         
         VirtualFilesystemNode* open_file(char* filename, uint64_t flags);
+        // Create a file, or open it if it already exists. Returns nullptr if the filesystem is read-only.
+        VirtualFilesystemNode* create_file(char* filename);
         // Read count bytes from offset into buf.
         uint64_t read(VirtualFilesystemNode* vnode, uint64_t offset, uint64_t count, void *buf);
         // Write count bytes from offset into buf.

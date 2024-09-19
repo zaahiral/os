@@ -74,3 +74,38 @@ namespace Filesystem
         // Read the boot sector and mount the filesystem at the given name, and return false if it is not FAT32.
         bool mount(const char* mountPoint);
 
+        uint64_t vfsdriver_read(VirtualFilesystemNode* vnode, uint64_t offset, uint64_t size, char* buf);
+        uint64_t vfsdriver_write(VirtualFilesystemNode* vnode, uint64_t offset, uint64_t size, char* buf);
+        void vfsdriver_open(VirtualFilesystemNode* vnode, uint64_t flags) {}
+        void vfsdriver_close(VirtualFilesystemNode* vnode) {}
+        VirtualFilesystemDirectoryEntry* vfsdriver_readdir(VirtualFilesystemNode* vnode, uint64_t index);
+        VirtualFilesystemNode* vfsdriver_finddir(VirtualFilesystemNode* vnode, char* name);
+        VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode* vnode, char* name);
+        uint64_t vfsdriver_filelen(VirtualFilesystemNode* vnode);
+    private:
+        FAT32Driver() {}
+        Spinlock m_spinlock;
+        uint32_t m_sectorsPerCluster;
+        uint32_t m_fatStart;
+        uint32_t m_fatSize;
+        uint32_t m_fatCount;
+        uint32_t m_dataStart;
+        uint32_t m_rootCluster;
+        uint32_t m_clusterCount;
+        // Allocation searches the FAT from here, which saves searching the clusters we know are used.
+        uint32_t m_nextFreeCluster = 2;
+
+        uint32_t cluster_to_sector(uint32_t cluster) { return m_dataStart + (cluster - 2) * m_sectorsPerCluster; }
+        uint32_t get_fat_entry(uint32_t cluster);
+        void set_fat_entry(uint32_t cluster, uint32_t value);
+        uint32_t allocate_cluster();
+        uint32_t get_first_cluster(VirtualFilesystemNode* vnode);
+        uint32_t get_cluster_at(uint32_t firstCluster, uint64_t index, bool shouldAllocate);
+        bool read_slot(uint32_t directoryCluster, uint64_t slot, uint64_t& inode, FAT32DirectoryEntry& entry);
+        void read_entry(uint64_t inode, FAT32DirectoryEntry& entry);
+        void write_entry(uint64_t inode, FAT32DirectoryEntry& entry);
+        VirtualFilesystemNode* make_vnode(uint64_t inode, FAT32DirectoryEntry& entry);
+    };
+}
+
+#endif
