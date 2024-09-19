@@ -905,9 +905,9 @@ To test networking, I will use QEMU’s command line to save a dump of network c
   <tr>
    <td>4.8 
    </td>
-   <td>User-space programs can be started from the shell, and can start other programs and wait for them to exit. Each program has its own address space. This is tested by typing the names of programs into the shell, including one that starts another program and prints its exit code. 
+   <td>User-space programs can be started from the shell, and can start other programs and wait for them to exit. Each program has its own address space, which is freed with its kernel stack when the program that waits for it reaps it. This is tested by typing the names of programs into the shell, including one that starts another program and prints its exit code, and by checking the free memory with the kernel shell's <code>mem</code> command before and after running a program ten times. 
    </td>
-   <td>Each program runs, and its exit code is returned to the program or shell waiting for it. 
+   <td>Each program runs, its exit code is returned to the program or shell waiting for it, and the free memory does not fall with each run. 
    </td>
   </tr>
   <tr>
@@ -2069,6 +2069,19 @@ extern "C" void _start()
 
 <p align="center">
 <i>ELF executable source code in <code>userspace/launch.cpp</code> for test 4.8, which starts <code>readfile</code> and waits for it to exit. </i>
+</p>
+
+```
+cOS> mem
+Free memory: 260372 KiB
+cOS> exec memtest        (run ten times)
+...
+cOS> mem
+Free memory: 260364 KiB
+```
+
+<p align="center">
+<i>Free memory before and after running <code>memtest</code> ten times for test 4.8. Without reaping, the same ten runs leave 258632 KiB free. </i>
 </p>
 
 <p align="center">
