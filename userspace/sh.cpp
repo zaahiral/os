@@ -109,3 +109,108 @@ void ls_command(const char* path)
     }
 }
 
+void cat_command(const char* path)
+{
+    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)path, 0);
+    if (fd == (uint64_t)-1)
+    {
+        print("No such file: ");
+        print(path);
+        print("\n");
+        return;
+    }
+    // Read the file in pieces, as it may be larger than the buffer.
+    char buffer[257];
+    uint64_t length;
+    char last = '\n';
+    while ((length = syscall(SYSCALL_FREAD, fd, (uint64_t)buffer, sizeof(buffer) - 1)) && length != (uint64_t)-1)
+    {
+        buffer[length] = '\0';
+        print(buffer);
+        last = buffer[length - 1];
+    }
+    if (last != '\n') { print("\n"); }
+    syscall(SYSCALL_FCLOSE, fd);
+}
+
+void write_command(char* argument)
+{
+    // The file name ends at the first space, and the rest of the line is the text.
+    char* text = argument;
+    while (*text && *text != ' ') { text++; }
+    if (*text) { *text++ = '\0'; }
+    if (!argument[0])
+    {
+        print("Usage: write <file> <text>, such as write disk/notes.txt hello\n");
+        return;
+    }
+    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)argument, FILE_CREATE | FILE_APPEND);
+    if (fd == (uint64_t)-1)
+    {
+        print("Cannot write to ");
+        print(argument);
+        print(", only files on the disk can be written to.\n");
+        return;
+    }
+    syscall(SYSCALL_FWRITE, fd, (uint64_t)text, string_length(text));
+    syscall(SYSCALL_FWRITE, fd, (uint64_t)"\n", 1);
+    syscall(SYSCALL_FCLOSE, fd);
+}
+
+void run_program(const char* name)
+{
+    // A program name without a directory is looked up in initrd/bin.
+    char path[MAX_LINE_LENGTH + 12];
+    bool hasDirectory = false;
+    for (const char* c = name; *c; c++) { if (*c == '/') { hasDirectory = true; } }
+    copy_string(path, hasDirectory ? "" : "initrd/bin/");
+    copy_string(path + string_length(path), name);
+
+    uint64_t tid = syscall(SYSCALL_SPAWN, (uint64_t)path);
+    if (tid == (uint64_t)-1)
+    {
+        print("No such program: ");
+        print(path);
+        print("\n");
+        return;
+    }
+    auto exitCode = (int64_t)syscall(SYSCALL_WAIT, tid);
+    // Keys typed while the program ran were meant for it, so we discard them.
+    while (syscall(SYSCALL_EREAD, keyboardEventDescriptor, 0, 0)) {}
+    print("Exited with code ");
+    if (exitCode < 0) { print("-"); exitCode = -exitCode; }
+    print_number(exitCode);
+    print(".\n");
+}
+
+extern "C" void _start()
+{
+    keyboardEventDescriptor = syscall(SYSCALL_EREGISTER, (uint64_t)"HID/Keyboard", 0);
+    print("\ncOS user shell. Type help for a list of commands.\n");
+    char line[MAX_LINE_LENGTH + 1];
+    while (1)
+    {
+        print("$ ");
+        read_line(line);
+
+        // Split the line into the command and its argument at the first space.
+        char* argument = line;
+        while (*argument && *argument != ' ') { argument++; }
+        if (*argument) { *argument++ = '\0'; }
+        while (*argument == ' ') { argument++; }
+
+        if (!line[0]) { continue; }
+        else if (strings_equal(line, "help")) { help_command(); }
+        else if (strings_equal(line, "clear")) { syscall(SYSCALL_CLEAR); }
+        else if (strings_equal(line, "echo")) { print(argument); print("\n"); }
+        else if (strings_equal(line, "ls")) { ls_command(*argument ? argument : "initrd"); }
+        else if (strings_equal(line, "cat")) { cat_command(argument); }
+        else if (strings_equal(line, "write")) { write_command(argument); }
+        else if (strings_equal(line, "exit"))
+        {
+            syscall(SYSCALL_EDEREGISTER, keyboardEventDescriptor);
+            syscall(SYSCALL_EXIT, 0);
+        }
+        else { run_program(line); }
+    }
+}
