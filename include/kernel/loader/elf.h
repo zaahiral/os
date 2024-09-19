@@ -125,15 +125,18 @@ namespace Loader
     static constexpr uint64_t USER_STACK_SIZE = 0x4000;
     // Memory from mmap starts at 1GiB, well away from the program, its heap and its stack.
     static constexpr uint64_t USER_MAP_BASE = 0x40000000;
+    // A program's command line is its path followed by its arguments, separated by spaces.
+    static constexpr uint64_t MAX_COMMAND_LINE_LENGTH = 256;
+    static constexpr uint64_t MAX_PROGRAM_ARGUMENTS = 16;
 
     bool check_elf_header_ident(Elf64_Ehdr *header);
     bool check_elf_header_support(Elf64_Ehdr *header);
     // Load an ELF file into a task's address space, and return false if it is not a valid executable.
     bool prepare_elf(char* path, Task::Task* task);
-    // The entry point of a task that runs a user-space program, whose path is the task's argument.
+    // The entry point of a task that runs a user-space program, whose command line is the task's argument.
     void user_program_task();
-    // Start a user-space program in a new task, and return the task's ID.
-    Task::TaskID spawn_user_program(const char* path);
+    // Start a user-space program in a new task with optional arguments, and return the task's ID.
+    Task::TaskID spawn_user_program(const char* path, const char* arguments = nullptr);
 } 
 
 #endif
