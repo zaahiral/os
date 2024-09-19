@@ -46,6 +46,18 @@ add_custom_command(OUTPUT initrd.tar
         -C ${TARGET_DIR} ${INITRD_FILES} -C ${CMAKE_CURRENT_BINARY_DIR} ${USERSPACE_PROGRAMS}
     DEPENDS ${INITRD_DEPENDS} ${USERSPACE_PROGRAMS})
 
+# The disk is a 64MiB FAT32 image, made with mtools from the files in targets/x86_64/disk.
+# It is only rebuilt when those files change, so files that cOS writes to it are kept between runs.
+find_program(MFORMAT mformat REQUIRED)
+find_program(MCOPY mcopy REQUIRED)
+file(GLOB DISK_FILES CONFIGURE_DEPENDS ${TARGET_DIR}/disk/*)
+add_custom_command(OUTPUT disk.img
+    COMMAND ${CMAKE_COMMAND} -E rm -f disk.img
+    COMMAND ${MFORMAT} -i disk.img -C -F -T 131072 -h 64 -s 32 ::
+    COMMAND ${MCOPY} -i disk.img ${DISK_FILES} ::
+    DEPENDS ${DISK_FILES})
+add_custom_target(disk ALL DEPENDS disk.img)
+
 find_program(GRUB_MKRESCUE NAMES grub-mkrescue i686-elf-grub-mkrescue REQUIRED)
 add_custom_command(OUTPUT cOS.iso
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/targets/x86_64/iso iso
@@ -55,8 +67,9 @@ add_custom_command(OUTPUT cOS.iso
     DEPENDS kernel.bin initrd.tar ${CMAKE_CURRENT_SOURCE_DIR}/targets/x86_64/iso/boot/grub/grub.cfg)
 add_custom_target(iso ALL DEPENDS cOS.iso)
 
-# QEMU with the network card the kernel has a driver for (AMD PCnet-PCI II).
+# QEMU with the network card the kernel has a driver for (AMD PCnet-PCI II), and the disk as the primary master.
+# The disk is not bootable, so QEMU is told to boot from the CD.
 add_custom_target(run
-    COMMAND qemu-system-x86_64 -cdrom cOS.iso -m 256M -nic user,model=pcnet
-    DEPENDS iso
+    COMMAND qemu-system-x86_64 -cdrom cOS.iso -m 256M -nic user,model=pcnet -drive file=disk.img,format=raw,if=ide,index=0,media=disk -boot d
+    DEPENDS iso disk
     USES_TERMINAL)

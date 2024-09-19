@@ -40,6 +40,7 @@ namespace Shell
         void run_file_command(char* path);
         void script_command(char* source);
         void exec_command(char* program);
+        void write_command(char* argument);
         void reboot_command();
     };
 }

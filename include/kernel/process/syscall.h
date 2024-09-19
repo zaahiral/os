@@ -19,6 +19,10 @@
 #define SYSCALL_SPAWN 15
 #define SYSCALL_WAIT 16
 
+// Flags for SYSCALL_FOPEN.
+#define FILE_CREATE 0x1
+#define FILE_APPEND 0x2
+
 uint64_t syscall(uint64_t num)
 {
     uint64_t ret;

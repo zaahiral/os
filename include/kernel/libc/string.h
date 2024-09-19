@@ -35,4 +35,16 @@ static int strcmp(const char* s1, const char* s2)
     return *(const uint8_t*)s1 - *(const uint8_t*)s2;
 }
 
+static int strncmp(const char* s1, const char* s2, uint64_t num)
+{
+    while (num && *s1 && (*s1 == *s2))
+    {
+        s1++;
+        s2++;
+        num--;
+    }
+    if (!num) { return 0; }
+    return *(const uint8_t*)s1 - *(const uint8_t*)s2;
+}
+
 #endif
