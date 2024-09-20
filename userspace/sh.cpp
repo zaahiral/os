@@ -81,56 +81,10 @@ void help_command()
     print("help             List the commands.\n");
     print("clear            Clear the screen.\n");
     print("echo <text>      Print the text.\n");
-    print("ls [directory]   List a directory, initrd by default.\n");
-    print("cat <file>       Print a file, such as disk/readme.txt.\n");
     print("write <file> <text>  Add a line to a file on the disk.\n");
     print("exit             Leave the user shell for the kernel shell.\n");
-    print("Any other command runs the program of that name in initrd/bin, such as hello.\n");
-}
-
-void ls_command(const char* path)
-{
-    char name[256];
-    for (uint64_t index = 0; ; index++)
-    {
-        uint64_t result = syscall(SYSCALL_READDIR, (uint64_t)path, index, (uint64_t)name);
-        if (result == (uint64_t)-1)
-        {
-            print("No such directory: ");
-            print(path);
-            print("\n");
-            return;
-        }
-        if (!result) { return; }
-        print(name);
-        // Directories are marked with a slash, as in most shells.
-        if (result == 2) { print("/"); }
-        print("\n");
-    }
-}
-
-void cat_command(const char* path)
-{
-    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)path, 0);
-    if (fd == (uint64_t)-1)
-    {
-        print("No such file: ");
-        print(path);
-        print("\n");
-        return;
-    }
-    // Read the file in pieces, as it may be larger than the buffer.
-    char buffer[257];
-    uint64_t length;
-    char last = '\n';
-    while ((length = syscall(SYSCALL_FREAD, fd, (uint64_t)buffer, sizeof(buffer) - 1)) && length != (uint64_t)-1)
-    {
-        buffer[length] = '\0';
-        print(buffer);
-        last = buffer[length - 1];
-    }
-    if (last != '\n') { print("\n"); }
-    syscall(SYSCALL_FCLOSE, fd);
+    print("Any other command runs the program of that name in initrd/bin with its arguments,\n");
+    print("such as ls, cat disk/readme.txt, wc initrd/hello.txt or memtest.\n");
 }
 
 void write_command(char* argument)
@@ -157,7 +111,7 @@ void write_command(char* argument)
     syscall(SYSCALL_FCLOSE, fd);
 }
 
-void run_program(const char* name)
+void run_program(const char* name, const char* arguments)
 {
     // A program name without a directory is looked up in initrd/bin.
     char path[MAX_LINE_LENGTH + 12];
@@ -166,7 +120,7 @@ void run_program(const char* name)
     copy_string(path, hasDirectory ? "" : "initrd/bin/");
     copy_string(path + string_length(path), name);
 
-    uint64_t tid = syscall(SYSCALL_SPAWN, (uint64_t)path);
+    uint64_t tid = syscall(SYSCALL_SPAWN, (uint64_t)path, (uint64_t)arguments);
     if (tid == (uint64_t)-1)
     {
         print("No such program: ");
@@ -177,6 +131,8 @@ void run_program(const char* name)
     auto exitCode = (int64_t)syscall(SYSCALL_WAIT, tid);
     // Keys typed while the program ran were meant for it, so we discard them.
     while (syscall(SYSCALL_EREAD, keyboardEventDescriptor, 0, 0)) {}
+    // As in most shells, only an exit code that reports a failure is printed.
+    if (!exitCode) { return; }
     print("Exited with code ");
     if (exitCode < 0) { print("-"); exitCode = -exitCode; }
     print_number(exitCode);
@@ -203,14 +159,12 @@ extern "C" void _start()
         else if (strings_equal(line, "help")) { help_command(); }
         else if (strings_equal(line, "clear")) { syscall(SYSCALL_CLEAR); }
         else if (strings_equal(line, "echo")) { print(argument); print("\n"); }
-        else if (strings_equal(line, "ls")) { ls_command(*argument ? argument : "initrd"); }
-        else if (strings_equal(line, "cat")) { cat_command(argument); }
         else if (strings_equal(line, "write")) { write_command(argument); }
         else if (strings_equal(line, "exit"))
         {
             syscall(SYSCALL_EDEREGISTER, keyboardEventDescriptor);
             syscall(SYSCALL_EXIT, 0);
         }
-        else { run_program(line); }
+        else { run_program(line, argument); }
     }
 }
