@@ -90,6 +90,7 @@ extern "C" void pre_kernel(const Multiboot::multiboot_info* multibootStructure, 
     CPU::set_global_descriptor_table(Memory::VirtualAddress(gdt).get());
 CPU::set_task_state_segment(static_cast<CPU::TaskStateSegment64*>(Memory::VirtualAddress(tss).get()));
     CPU::InterruptManager::instance().initialise();
+    CPU::enable_sse();
     CPU::PIT::instance().initialise();
     Memory::KernelHeapManager::instance();
     printf("-> Kernel heap allocated successfully.\n");
