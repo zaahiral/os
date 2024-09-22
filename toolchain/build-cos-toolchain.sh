@@ -26,3 +26,19 @@ tar xf gcc-$GCC_VERSION.tar.xz
 patch -d binutils-$BINUTILS_VERSION -p1 < "$SCRIPT_DIR/patches/binutils-$BINUTILS_VERSION-cos.patch"
 patch -d gcc-$GCC_VERSION -p1 < "$SCRIPT_DIR/patches/gcc-$GCC_VERSION-cos.patch"
 
+mkdir build-binutils
+cd build-binutils
+../binutils-$BINUTILS_VERSION/configure --target=$TARGET --prefix="$PREFIX" --with-sysroot="$PREFIX/sysroot" --disable-nls --disable-werror
+make -j"$JOBS"
+make install
+cd ..
+
+# The C library is not built yet, so GCC is configured without its headers, and only the compilers and libgcc are built.
+# --with-newlib tells libgcc that the C library will be newlib, so it does not look for its headers yet.
+export PATH="$PREFIX/bin:$PATH"
+mkdir build-gcc
+cd build-gcc
+../gcc-$GCC_VERSION/configure --target=$TARGET --prefix="$PREFIX" --with-sysroot="$PREFIX/sysroot" --without-headers --with-newlib \
+    --enable-languages=c,c++ --disable-nls --disable-multilib --disable-shared
+make -j"$JOBS" all-gcc all-target-libgcc
+make install-gcc install-target-libgcc
