@@ -28,9 +28,25 @@ asm_syscall_handler:
     sti
     push rcx
     push r11
+    ; As on Linux, a system call only changes rax, rcx and r11, so we preserve the argument registers that the C++ handler may change.
+    push rdi
+    push rsi
+    push rdx
+    push r10
+    push r8
+    push r9
+    ; Keep the stack 16-byte aligned for the call.
+    sub rsp, 8
     ; We preserve rcx for sysret, so we can clobber it for arguments.
     mov rcx, r10
     call _ZN9Processes15syscall_handlerEyyyyyy
+    add rsp, 8
+    pop r9
+    pop r8
+    pop r10
+    pop rdx
+    pop rsi
+    pop rdi
     pop r11
     pop rcx
     ; Switch back to the user stack with interrupts disabled, and sysret restores the user's flags.

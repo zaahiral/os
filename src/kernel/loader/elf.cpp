@@ -101,7 +101,15 @@ namespace Loader
                 }
             }
         }
-        // We copy the ELF file to 0x400000 for the libc.
+        // We copy the ELF file to 0x400000 for the libc. Programs linked with the default linker script start at 0x401000,
+        // so the page may not have been mapped for a section.
+        if (!Memory::MemoryManager::instance().get_physical_address(Memory::VirtualAddress(0x400000), task->get_tlTable()).get())
+        {
+            auto request = Memory::VirtualMemoryAllocationRequest(Memory::VirtualAddress(0x400000));
+            request.allowUserAccess = true;
+            request.allowWrite = true;
+            Memory::MemoryManager::instance().alloc_page(request, task->get_tlTable());
+        }
         memcpy((void*)0x400000, elfFile, sizeof(Elf64_Ehdr));
 
         // Allocate the program's stack.
