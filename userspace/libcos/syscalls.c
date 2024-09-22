@@ -87,3 +87,36 @@ static int read_keyboard_line(char* buffer, int count)
             cos_syscall(SYSCALL_CONSOLE_WRITE, (long)&c, 1, 0);
         }
     }
+}
+
+int read(int fd, void* buffer, int count)
+{
+    if (fd == 0) { return read_keyboard_line(buffer, count); }
+    if (fd < CONSOLE_DESCRIPTORS)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    long result = cos_syscall(SYSCALL_FREAD, fd - CONSOLE_DESCRIPTORS, (long)buffer, count);
+    if (result < 0)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    return result;
+}
+
+int write(int fd, const void* buffer, int count)
+{
+    if (fd == 1 || fd == 2) { return cos_syscall(SYSCALL_CONSOLE_WRITE, (long)buffer, count, 0); }
+    if (fd < CONSOLE_DESCRIPTORS)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    long result = cos_syscall(SYSCALL_FWRITE, fd - CONSOLE_DESCRIPTORS, (long)buffer, count);
+    if (result < 0)
+    {
+        errno = EBADF;
+        return -1;
+    }
