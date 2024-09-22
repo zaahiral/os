@@ -2,6 +2,7 @@
 #include "process/taskManager.h"
 #include "loader/elf.h"
 #include "event/dispatcher.h"
+#include "cpu/io/pit.h"
 #include "print.h"
 
 // TODO: Validate these syscalls so that everything is checked, as the arguments are from ring 3 and
@@ -158,6 +159,78 @@ uint64_t fwrite_syscall(uint64_t fd, uint64_t buf, uint64_t count)
     return bytesWritten;
 }
 
+// Move a file's offset, and return the new offset.
+uint64_t lseek_syscall(uint64_t fd, uint64_t offset, uint64_t whence)
+{
+    Task::TaskManager::instance().lock();
+    auto& fileDescriptorTable = *Task::TaskManager::instance().get_current_task_pointer()->get_file_descriptor_table();
+    auto entry = fileDescriptorTable.get(fd);
+    if (entry.is_end() || whence > SEEK_FROM_END)
+    {
+        Task::TaskManager::instance().unlock();
+        return -1;
+    }
+    int64_t base = 0;
+    if (whence == SEEK_FROM_CURRENT) { base = entry->last.offset; }
+    if (whence == SEEK_FROM_END) { base = Filesystem::VirtualFilesystemManager::instance().filelen(entry->last.node); }
+    int64_t newOffset = base + (int64_t)offset;
+    if (newOffset < 0)
+    {
+        Task::TaskManager::instance().unlock();
+        return -1;
+    }
+    entry->last.offset = newOffset;
+    Task::TaskManager::instance().unlock();
+    return newOffset;
+}
+
+void fill_file_status(Filesystem::VirtualFilesystemNode* node, FileStatus* status)
+{
+    status->size = Filesystem::VirtualFilesystemManager::instance().filelen(node);
+    status->isDirectory = (node->flags & Filesystem::VirtualFilesystemNode::VFS_DIRECTORY) != 0;
+}
+
+uint64_t stat_syscall(uint64_t path, uint64_t buf)
+{
+    if (!is_user_address(path, 1) || !is_user_address(buf, sizeof(FileStatus))) { return -1; }
+    auto node = Filesystem::VirtualFilesystemManager::instance().open_file((char*)path, 0);
+    if (!node) { return -1; }
+    fill_file_status(node, (FileStatus*)buf);
+    delete node;
+    return 0;
+}
+
+uint64_t fstat_syscall(uint64_t fd, uint64_t buf)
+{
+    if (!is_user_address(buf, sizeof(FileStatus))) { return -1; }
+    Task::TaskManager::instance().lock();
+    auto& fileDescriptorTable = *Task::TaskManager::instance().get_current_task_pointer()->get_file_descriptor_table();
+    auto entry = fileDescriptorTable.get(fd);
+    if (entry.is_end())
+    {
+        Task::TaskManager::instance().unlock();
+        return -1;
+    }
+    fill_file_status(entry->last.node, (FileStatus*)buf);
+    Task::TaskManager::instance().unlock();
+    return 0;
+}
+
+// Print a number of bytes, which need not end with a null terminator.
+uint64_t console_write_syscall(uint64_t buf, uint64_t count)
+{
+    if (!is_user_address(buf, count)) { return -1; }
+    char text[129];
+    for (uint64_t done = 0; done < count; done += 128)
+    {
+        uint64_t length = count - done < 128 ? count - done : 128;
+        memcpy(text, (char*)buf + done, length);
+        text[length] = '\0';
+        printf(text);
+    }
+    return count;
+}
+
 uint64_t fclose_syscall(uint64_t fd)
 {
     Task::TaskManager::instance().lock();
@@ -297,6 +370,18 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         case SYSCALL_CLEAR:
         clear_screen();
         return 0;
+        case SYSCALL_GETTID:
+        return Task::TaskManager::instance().get_current_task();
+        case SYSCALL_LSEEK:
+        return lseek_syscall(arg1, arg2, arg3);
+        case SYSCALL_STAT:
+        return stat_syscall(arg1, arg2);
+        case SYSCALL_FSTAT:
+        return fstat_syscall(arg1, arg2);
+        case SYSCALL_UPTIME:
+        return CPU::PIT::time_since_boot();
+        case SYSCALL_CONSOLE_WRITE:
+        return console_write_syscall(arg1, arg2);
         case 99:
         printf(arg1);
         return 0;

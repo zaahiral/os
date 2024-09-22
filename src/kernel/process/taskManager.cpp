@@ -5,6 +5,7 @@
 #include "process/masterScheduler.h"
 #include "x86_64.h"
 #include "memory/MemoryManager.h"
+#include "memory/kheap.h"
 #include "cpu/io/pit.h"
 
 namespace Task
@@ -19,6 +20,9 @@ namespace Task
 
     TaskManager::TaskManager()
     {
+        // fxsave needs a 16-byte aligned buffer, and the kernel heap only aligns allocations to 8 bytes.
+        m_initialFpuState = reinterpret_cast<uint8_t*>(BYTE_ALIGN_UP(reinterpret_cast<uint64_t>(kmalloc(CPU::FPU_STATE_SIZE + 16, 0)), 16));
+        CPU::save_fpu_state(m_initialFpuState);
         enable_syscall_sysret();
         // The safe stack is used by the scheduler while it changes task, and is as large as a task's kernel stack.
         for (auto page = START_OF_PROCESS_KSTACKS; page < START_OF_PROCESS_KSTACKS + KERNEL_STACK_SIZE; page += Memory::PAGE_4KiB)
@@ -52,6 +56,10 @@ namespace Task
 
         task.set_kstack(reinterpret_cast<void*>(stackBottom + KERNEL_STACK_SIZE));
         task.set_kernel_stack_top(reinterpret_cast<void*>(stackBottom + KERNEL_STACK_SIZE));
+
+        task.m_fpuStateAllocation = static_cast<uint8_t*>(kmalloc(CPU::FPU_STATE_SIZE + 16, 0));
+        task.m_fpuState = reinterpret_cast<uint8_t*>(BYTE_ALIGN_UP(reinterpret_cast<uint64_t>(task.m_fpuStateAllocation), 16));
+        memcpy(task.m_fpuState, m_initialFpuState, CPU::FPU_STATE_SIZE);
         return task;
     }
 
@@ -69,6 +77,15 @@ namespace Task
     {
         // Acquire spinlock if we do not already have it.
         if (!is_spinlock_acquired()) { m_spinlock.acquire(); }
+
+        // The FPU and SSE registers still hold the state of the last task that had them, so we save it before running a different task.
+        if (task->get_task_id() != m_fpuOwner)
+        {
+            auto owner = m_fpuOwner ? m_scheduler->get_task_from_tid(m_fpuOwner) : nullptr;
+            if (owner) { CPU::save_fpu_state(owner->m_fpuState); }
+            CPU::restore_fpu_state(task->m_fpuState);
+            m_fpuOwner = task->get_task_id();
+        }
 
         if (task->m_state == Task::TaskState::NOT_STARTED)
         {
@@ -297,6 +314,8 @@ namespace Task
         {
             Memory::MemoryManager::instance().free_page(Memory::VirtualMemoryFreeRequest(Memory::VirtualAddress(page)));
         }
+        kfree(task->m_fpuStateAllocation);
+        if (m_fpuOwner == tid) { m_fpuOwner = 0; }
         m_scheduler->remove_task(tid);
         m_spinlock.release();
     }
