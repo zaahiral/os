@@ -153,3 +153,40 @@ int fstat(int fd, struct stat* st)
         st->st_mode = S_IFCHR;
         return 0;
     }
+    struct FileStatus status;
+    if (cos_syscall(SYSCALL_FSTAT, fd - CONSOLE_DESCRIPTORS, (long)&status, 0) < 0)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    to_stat(&status, st);
+    return 0;
+}
+
+int stat(const char* path, struct stat* st)
+{
+    struct FileStatus status;
+    if (cos_syscall(SYSCALL_STAT, (long)path, (long)&status, 0) < 0)
+    {
+        errno = ENOENT;
+        return -1;
+    }
+    to_stat(&status, st);
+    return 0;
+}
+
+int isatty(int fd)
+{
+    if (fd < CONSOLE_DESCRIPTORS) { return 1; }
+    errno = ENOTTY;
+    return 0;
+}
+
+void* sbrk(int increment)
+{
+    long oldBreak = cos_syscall(SYSCALL_BRK, 0, 0, 0);
+    if (increment && cos_syscall(SYSCALL_BRK, oldBreak + increment, 0, 0) != oldBreak + increment)
+    {
+        errno = ENOMEM;
+        return (void*)-1;
+    }
