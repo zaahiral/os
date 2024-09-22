@@ -918,6 +918,14 @@ To test networking, I will use QEMU’s command line to save a dump of network c
    <td>No allocation is overwritten, freed blocks are reused, mapped memory starts as zeros, and the faulting program is stopped while the shell keeps running. 
    </td>
   </tr>
+  <tr>
+   <td>4.10 
+   </td>
+   <td>Programs receive their arguments as <code>argc</code> and <code>argv</code>, and can be written against the small C library in <code>userspace/include</code>. This is tested by running <code>ls</code>, <code>cat</code> and <code>wc</code>, which are user-space programs, with arguments, and comparing the output of <code>wc</code> with the host's <code>wc</code>. 
+   </td>
+   <td>Each program handles all of its arguments, and the counts match the host's <code>wc</code>. 
+   </td>
+  </tr>
 </table>
 
 
@@ -2184,6 +2192,84 @@ extern "C" void _start()
 
 <p align="center">
 <i>ELF executable source code in <code>userspace/crash.cpp</code> for test 4.9. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-4.10.png" alt="Screenshot of running ls, cat and wc with arguments for test 4.10.">
+</p>
+
+<p align="center">
+<i>Screenshot of running ls, cat and wc with arguments for test 4.10. </i>
+</p>
+
+```
+$ wc initrd/hello.txt disk/readme.txt initrd/scripts/fibonacci.cs
+       1       5      27 initrd/hello.txt
+       1       7      32 disk/readme.txt
+      13      51     261 initrd/scripts/fibonacci.cs
+      15      63     320 total
+```
+
+<p align="center">
+<i>The host's <code>wc</code> on the same files for test 4.10. </i>
+</p>
+
+```cpp
+#include "start.h"
+#include "stdio.h"
+#include "unistd.h"
+
+// Counts the lines, words and bytes in each file named in the arguments, as the Unix wc program does.
+int main(int argc, char** argv)
+{
+    if (argc < 2)
+    {
+        puts("Usage: wc <file>...");
+        return 1;
+    }
+    uint64_t totalLines = 0;
+    uint64_t totalWords = 0;
+    uint64_t totalBytes = 0;
+    for (int i = 1; i < argc; i++)
+    {
+        int64_t fd = open(argv[i]);
+        if (fd < 0)
+        {
+            printf("wc: no such file: %s\n", argv[i]);
+            return 1;
+        }
+        uint64_t lines = 0;
+        uint64_t words = 0;
+        uint64_t bytes = 0;
+        bool isInWord = false;
+        char buffer[256];
+        int64_t length;
+        while ((length = read(fd, buffer, sizeof(buffer))) > 0)
+        {
+            bytes += length;
+            for (int64_t j = 0; j < length; j++)
+            {
+                char c = buffer[j];
+                if (c == '\n') { lines++; }
+                // A word starts at the first character that is not a space after a space.
+                bool isSpace = c == ' ' || c == '\n' || c == '\t';
+                if (!isSpace && !isInWord) { words++; }
+                isInWord = !isSpace;
+            }
+        }
+        close(fd);
+        printf("%6lu %6lu %6lu %s\n", lines, words, bytes, argv[i]);
+        totalLines += lines;
+        totalWords += words;
+        totalBytes += bytes;
+    }
+    if (argc > 2) { printf("%6lu %6lu %6lu total\n", totalLines, totalWords, totalBytes); }
+    return 0;
+}
+```
+
+<p align="center">
+<i>ELF executable source code in <code>userspace/wc.cpp</code> for test 4.10. The C library headers, such as <code>stdio.h</code> with <code>printf</code>, are in <code>userspace/include</code>. </i>
 </p>
 
 <p align="center">
