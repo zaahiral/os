@@ -46,6 +46,12 @@ This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card
 
 The build also makes `build/disk.img`, a FAT32 disk containing the files in `targets/x86_64/disk`, which the kernel mounts at `disk/`. Files that cOS writes to the disk are kept between runs, and can be read on the host with mtools, for example `mtype -i build/disk.img ::notes.txt`.
 
+`toolchain/build-cos-toolchain.sh` builds a cross compiler for cOS itself, binutils 2.42 and GCC 14.2 for the `x86_64-cos` target, from the patches in `toolchain/patches`. This is the first step towards building GCC to run inside cOS. It needs a Linux machine, and takes about 15 minutes with 16 cores:
+
+```
+toolchain/build-cos-toolchain.sh <work directory> <install prefix> [jobs]
+```
+
 ## Project Specification
 
 These are checkboxes, but I will probably only review these guidelines at the end to check them off, rather than iteratively during the project. These are mostly for my own reference.
