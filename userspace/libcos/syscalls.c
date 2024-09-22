@@ -120,3 +120,36 @@ int write(int fd, const void* buffer, int count)
         errno = EBADF;
         return -1;
     }
+    return result;
+}
+
+int lseek(int fd, int offset, int whence)
+{
+    if (fd < CONSOLE_DESCRIPTORS)
+    {
+        errno = ESPIPE;
+        return -1;
+    }
+    long result = cos_syscall(SYSCALL_LSEEK, fd - CONSOLE_DESCRIPTORS, offset, whence);
+    if (result < 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+    return result;
+}
+
+static void to_stat(struct FileStatus* status, struct stat* st)
+{
+    st->st_size = status->size;
+    st->st_mode = status->isDirectory ? S_IFDIR : S_IFREG;
+    st->st_blksize = 512;
+}
+
+int fstat(int fd, struct stat* st)
+{
+    if (fd < CONSOLE_DESCRIPTORS)
+    {
+        st->st_mode = S_IFCHR;
+        return 0;
+    }
