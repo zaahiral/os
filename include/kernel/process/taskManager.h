@@ -69,6 +69,9 @@ namespace Task
         // Free everything that an exited task owns, and remove it from the scheduler.
         void reap_task(TaskID tid);
         Spinlock m_spinlock;
+        // The FPU and SSE registers hold the state of this task, and new tasks start with the state saved at boot.
+        TaskID m_fpuOwner = 0;
+        uint8_t* m_initialFpuState;
         struct SleepingTask
         {
             TaskID task;

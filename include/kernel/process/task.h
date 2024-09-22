@@ -150,6 +150,9 @@ namespace Task
         uint64_t m_tid = 0;
         void* m_entryPoint;
         void* m_argument = nullptr;
+        // The task's saved FPU and SSE registers, aligned to 16 bytes within the allocation.
+        uint8_t* m_fpuStateAllocation = nullptr;
+        uint8_t* m_fpuState = nullptr;
         // A user-space program's heap runs from the heap start to the program break, and mmap hands out memory above it.
         uint64_t m_heapStart = 0;
         uint64_t m_programBreak = 0;

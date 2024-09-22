@@ -1,30 +1,8 @@
 #ifndef SYSCALL_H
 #define SYSCALL_H
 #include "types.h"
+#include "process/syscallnumbers.h"
 
-#define SYSCALL_DPRINTF 1
-#define SYSCALL_VMMAP 2
-#define SYSCALL_VMUNMAP 3
-#define SYSCALL_FOPEN 4
-#define SYSCALL_FCLOSE 5
-#define SYSCALL_FREAD 6
-#define SYSCALL_FWRITE 7
-#define SYSCALL_EREGISTER 8
-#define SYSCALL_ELISTEN 9
-#define SYSCALL_EDEREGISTER 10
-#define SYSCALL_EREAD 11
-#define SYSCALL_SLEEP_FOR 12
-#define SYSCALL_GETTID 13
-#define SYSCALL_EXIT 14
-#define SYSCALL_SPAWN 15
-#define SYSCALL_WAIT 16
-#define SYSCALL_BRK 17
-#define SYSCALL_READDIR 18
-#define SYSCALL_CLEAR 19
-
-// Flags for SYSCALL_FOPEN.
-#define FILE_CREATE 0x1
-#define FILE_APPEND 0x2
 
 // The system call number goes in rax and the arguments in rdi, rsi, rdx, r10, r8 and r9. The syscall instruction
 // overwrites rcx and r11, and the kernel may read or write memory, so the compiler is told about both.
