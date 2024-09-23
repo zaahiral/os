@@ -190,3 +190,36 @@ void* sbrk(int increment)
         errno = ENOMEM;
         return (void*)-1;
     }
+    return (void*)oldBreak;
+}
+
+int getpid(void)
+{
+    return cos_syscall(SYSCALL_GETTID, 0, 0, 0);
+}
+
+/* cOS has no real-time clock driver yet, so time is counted from boot. */
+int gettimeofday(struct timeval* time, void* timezone)
+{
+    long milliseconds = cos_syscall(SYSCALL_UPTIME, 0, 0, 0);
+    time->tv_sec = milliseconds / 1000;
+    time->tv_usec = (milliseconds % 1000) * 1000;
+    return 0;
+}
+
+clock_t times(struct tms* buffer)
+{
+    long milliseconds = cos_syscall(SYSCALL_UPTIME, 0, 0, 0);
+    buffer->tms_utime = milliseconds;
+    buffer->tms_stime = 0;
+    buffer->tms_cutime = 0;
+    buffer->tms_cstime = 0;
+    return milliseconds;
+}
+
+/* cOS does not have signals, links, deleting files, fork or exec yet. Programs are started with spawn instead. */
+int kill(int pid, int signal)
+{
+    errno = EINVAL;
+    return -1;
+}
