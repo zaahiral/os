@@ -52,6 +52,13 @@ The build also makes `build/disk.img`, a FAT32 disk containing the files in `tar
 toolchain/build-cos-toolchain.sh <work directory> <install prefix> [jobs]
 ```
 
+`toolchain/build-cos-newlib.sh` then builds the newlib C library into the toolchain's sysroot, along with `libcos` (`userspace/libcos`), which gives newlib the cOS system calls it needs, such as `read`, `write` and `sbrk`. Ordinary C programs, using `printf`, `malloc` and `FILE`, can then be compiled for cOS and copied into `targets/x86_64/initrd/bin`:
+
+```
+toolchain/build-cos-newlib.sh <work directory> <install prefix> [jobs]
+x86_64-cos-gcc -O2 program.c -o program -Wl,--start-group -lc -lcos -Wl,--end-group
+```
+
 ## Project Specification
 
 These are checkboxes, but I will probably only review these guidelines at the end to check them off, rather than iteratively during the project. These are mostly for my own reference.

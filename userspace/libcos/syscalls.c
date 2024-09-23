@@ -223,3 +223,33 @@ int kill(int pid, int signal)
     errno = EINVAL;
     return -1;
 }
+
+int link(const char* oldPath, const char* newPath)
+{
+    errno = EMLINK;
+    return -1;
+}
+
+int unlink(const char* path)
+{
+    errno = ENOSYS;
+    return -1;
+}
+
+int fork(void)
+{
+    errno = ENOSYS;
+    return -1;
+}
+
+int execve(const char* path, char* const argv[], char* const envp[])
+{
+    errno = ENOSYS;
+    return -1;
+}
+
+int wait(int* status)
+{
+    errno = ECHILD;
+    return -1;
+}
