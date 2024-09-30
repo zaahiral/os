@@ -110,3 +110,61 @@ static int join_environment(char* const envp[], char* environment)
         memcpy(environment + length, envp[i], variableLength);
         length += variableLength;
     }
+    environment[length] = '\0';
+    return 0;
+}
+
+int posix_spawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* actions, const posix_spawnattr_t* attributes,
+                char* const argv[], char* const envp[])
+{
+    if (actions && *actions && (*actions)->hasRedirection) { return ENOTSUP; }
+    char arguments[MAX_COMMAND_LINE_LENGTH];
+    char environment[MAX_ENVIRONMENT_LENGTH];
+    int error = join_arguments(argv, arguments);
+    if (!error) { error = join_environment(envp, environment); }
+    if (error) { return error; }
+
+    long tid = cos_syscall(SYSCALL_SPAWN, (long)path, (long)arguments, (long)environment);
+    if (tid < 0) { return ENOENT; }
+    if (pid) { *pid = tid; }
+    return 0;
+}
+
+/* A program name without a / is looked for in each directory in PATH, which is initrd/bin if it is not set. */
+int posix_spawnp(pid_t* pid, const char* file, const posix_spawn_file_actions_t* actions, const posix_spawnattr_t* attributes,
+                 char* const argv[], char* const envp[])
+{
+    if (strchr(file, '/')) { return posix_spawn(pid, file, actions, attributes, argv, envp); }
+    const char* directory = getenv("PATH");
+    if (!directory || !*directory) { directory = "initrd/bin"; }
+    char path[MAX_COMMAND_LINE_LENGTH];
+    while (*directory)
+    {
+        size_t directoryLength = strcspn(directory, ":");
+        if (directoryLength + strlen(file) + 2 <= sizeof(path))
+        {
+            memcpy(path, directory, directoryLength);
+            path[directoryLength] = '/';
+            strcpy(path + directoryLength + 1, file);
+            struct stat st;
+            if (!stat(path, &st) && !S_ISDIR(st.st_mode)) { return posix_spawn(pid, path, actions, attributes, argv, envp); }
+        }
+        directory += directoryLength;
+        if (*directory == ':') { directory++; }
+    }
+    return ENOENT;
+}
+
+/* cOS can only wait for one program at a time, and does not support WNOHANG, so options are not used.
+   A program that was stopped by an exception exits with code -1, which waitpid reports as exit status 255. */
+pid_t waitpid(pid_t pid, int* status, int options)
+{
+    if (pid <= 0)
+    {
+        errno = ECHILD;
+        return -1;
+    }
+    long exitCode = cos_syscall(SYSCALL_WAIT, pid, 0, 0);
+    if (status) { *status = (exitCode & 0xff) << 8; }
+    return pid;
+}
