@@ -3,19 +3,12 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/times.h>
-#include "process/syscallnumbers.h"
+#include "cossyscall.h"
 
 /* The operating system functions that newlib calls, built on the cOS system calls.
    File descriptors 0, 1 and 2 are the keyboard and the screen, and the kernel's file descriptors start after them. */
 
 #define CONSOLE_DESCRIPTORS 3
-
-static long cos_syscall(long number, long arg1, long arg2, long arg3)
-{
-    long result;
-    __asm__ volatile("syscall" : "=a"(result) : "a"(number), "D"(arg1), "S"(arg2), "d"(arg3) : "rcx", "r11", "memory");
-    return result;
-}
 
 void _exit(int code)
 {
@@ -28,10 +21,13 @@ int open(const char* path, int flags, ...)
     long cosFlags = 0;
     if (flags & O_CREAT) { cosFlags |= FILE_CREATE; }
     if (flags & O_APPEND) { cosFlags |= FILE_APPEND; }
+    if (flags & O_TRUNC) { cosFlags |= FILE_TRUNCATE; }
+    if (flags & O_EXCL) { cosFlags |= FILE_EXCLUSIVE; }
     long fd = cos_syscall(SYSCALL_FOPEN, (long)path, cosFlags, 0);
     if (fd < 0)
     {
-        errno = ENOENT;
+        struct stat st;
+        errno = ((flags & O_EXCL) && !stat(path, &st)) ? EEXIST : ENOENT;
         return -1;
     }
     return fd + CONSOLE_DESCRIPTORS;
@@ -217,7 +213,7 @@ clock_t times(struct tms* buffer)
     return milliseconds;
 }
 
-/* cOS does not have signals, links, deleting files, fork or exec yet. Programs are started with spawn instead. */
+/* cOS does not have signals, links, fork or exec yet. Programs are started with posix_spawn instead. */
 int kill(int pid, int signal)
 {
     errno = EINVAL;
@@ -230,11 +226,6 @@ int link(const char* oldPath, const char* newPath)
     return -1;
 }
 
-int unlink(const char* path)
-{
-    errno = ENOSYS;
-    return -1;
-}
 
 int fork(void)
 {
@@ -252,4 +243,57 @@ int wait(int* status)
 {
     errno = ECHILD;
     return -1;
+}
+
+/* Every file can be read, written and run, so a file can be accessed if it exists. */
+int access(const char* path, int mode)
+{
+    struct stat st;
+    return stat(path, &st);
+}
+
+int unlink(const char* path)
+{
+    struct stat st;
+    if (stat(path, &st) < 0) { return -1; }
+    if (S_ISDIR(st.st_mode))
+    {
+        errno = EISDIR;
+        return -1;
+    }
+    if (cos_syscall(SYSCALL_UNLINK, (long)path, 0, 0) < 0)
+    {
+        errno = EROFS;
+        return -1;
+    }
+    return 0;
+}
+
+int rmdir(const char* path)
+{
+    struct stat st;
+    if (stat(path, &st) < 0) { return -1; }
+    if (!S_ISDIR(st.st_mode))
+    {
+        errno = ENOTDIR;
+        return -1;
+    }
+    if (cos_syscall(SYSCALL_UNLINK, (long)path, 0, 0) < 0)
+    {
+        errno = ENOTEMPTY;
+        return -1;
+    }
+    return 0;
+}
+
+/* cOS does not have file permissions, so the mode is not used. */
+int mkdir(const char* path, mode_t mode)
+{
+    if (cos_syscall(SYSCALL_MKDIR, (long)path, 0, 0) < 0)
+    {
+        struct stat st;
+        errno = stat(path, &st) ? ENOENT : EEXIST;
+        return -1;
+    }
+    return 0;
 }
