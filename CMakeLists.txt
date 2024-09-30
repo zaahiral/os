@@ -42,9 +42,18 @@ endforeach()
 set(TARGET_DIR ${CMAKE_CURRENT_SOURCE_DIR}/targets/x86_64)
 file(GLOB_RECURSE INITRD_FILES CONFIGURE_DEPENDS RELATIVE ${TARGET_DIR} ${TARGET_DIR}/initrd/*)
 list(TRANSFORM INITRD_FILES PREPEND ${TARGET_DIR}/ OUTPUT_VARIABLE INITRD_DEPENDS)
+# The compiler that runs on cOS, from toolchain/build-cos-native.sh, is large, so it is only added to the initrd
+# when its directory is given, as in cmake -DNATIVE_TOOLCHAIN=<directory>.
+set(NATIVE_ARGUMENTS)
+if(NATIVE_TOOLCHAIN)
+    file(GLOB_RECURSE NATIVE_FILES CONFIGURE_DEPENDS RELATIVE ${NATIVE_TOOLCHAIN} ${NATIVE_TOOLCHAIN}/initrd/*)
+    list(TRANSFORM NATIVE_FILES PREPEND ${NATIVE_TOOLCHAIN}/ OUTPUT_VARIABLE NATIVE_DEPENDS)
+    list(APPEND INITRD_DEPENDS ${NATIVE_DEPENDS})
+    set(NATIVE_ARGUMENTS -C ${NATIVE_TOOLCHAIN} ${NATIVE_FILES})
+endif()
 add_custom_command(OUTPUT initrd.tar
     COMMAND ${CMAKE_COMMAND} -E env COPYFILE_DISABLE=1 tar --format=ustar -b 8 -cf ${CMAKE_CURRENT_BINARY_DIR}/initrd.tar
-        -C ${TARGET_DIR} ${INITRD_FILES} -C ${CMAKE_CURRENT_BINARY_DIR} ${USERSPACE_PROGRAMS}
+        -C ${TARGET_DIR} ${INITRD_FILES} -C ${CMAKE_CURRENT_BINARY_DIR} ${USERSPACE_PROGRAMS} ${NATIVE_ARGUMENTS}
     DEPENDS ${INITRD_DEPENDS} ${USERSPACE_PROGRAMS})
 
 # The disk is a 64MiB FAT32 image, made with mtools from the files in targets/x86_64/disk.
@@ -71,6 +80,6 @@ add_custom_target(iso ALL DEPENDS cOS.iso)
 # QEMU with the network card the kernel has a driver for (AMD PCnet-PCI II), and the disk as the primary master.
 # The disk is not bootable, so QEMU is told to boot from the CD.
 add_custom_target(run
-    COMMAND qemu-system-x86_64 -cdrom cOS.iso -m 256M -nic user,model=pcnet -drive file=disk.img,format=raw,if=ide,index=0,media=disk -boot d
+    COMMAND qemu-system-x86_64 -cdrom cOS.iso -m 1G -nic user,model=pcnet -drive file=disk.img,format=raw,if=ide,index=0,media=disk -boot d
     DEPENDS iso disk
     USES_TERMINAL)

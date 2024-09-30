@@ -45,6 +45,12 @@ namespace CPU
         asm volatile ("fninit");
     }
 
+    // Programs reach their thread-local variables through the FS segment, whose base is set in the IA32_FS_BASE MSR.
+    static inline void set_fs_base(uint64_t base)
+    {
+        asm volatile ("wrmsr" : : "c"(0xC0000100), "a"((uint32_t)base), "d"((uint32_t)(base >> 32)));
+    }
+
     // The FPU and SSE state is 512 bytes, and the buffer must be 16-byte aligned.
     static constexpr uint64_t FPU_STATE_SIZE = 512;
 

@@ -10,6 +10,7 @@ namespace Filesystem
 {
     #define FAT32_END_OF_CHAIN 0x0FFFFFF8
     #define FAT32_CLUSTER_MASK 0x0FFFFFFF
+    #define FAT32_MAX_FILE_SIZE 0xFFFFFFFFull
     #define FAT32_ENTRIES_PER_SECTOR (ATA_SECTOR_SIZE / sizeof(FAT32DirectoryEntry))
 
     #define FAT32_ATTRIBUTE_VOLUME_ID 0x08
@@ -59,7 +60,8 @@ namespace Filesystem
         uint32_t size;
     } __attribute__((packed));
 
-    // A driver for FAT32 filesystems on the ATA disk, which supports reading, writing, creating and removing files and directories with 8.3 names.
+    // A driver for FAT32 filesystems on the ATA disk, which supports reading, writing, creating and removing files
+    // and directories with 8.3 names.
     // A node's inode number is the position of its directory entry on the disk, and the root directory has inode 0.
     class FAT32Driver : VFSDriver
     {
@@ -80,7 +82,7 @@ namespace Filesystem
         void vfsdriver_close(VirtualFilesystemNode* vnode) {}
         VirtualFilesystemDirectoryEntry* vfsdriver_readdir(VirtualFilesystemNode* vnode, uint64_t index);
         VirtualFilesystemNode* vfsdriver_finddir(VirtualFilesystemNode* vnode, char* name);
-        VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode* vnode, char* name);
+        VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode* vnode, char* name, bool isExclusive);
         VirtualFilesystemNode* vfsdriver_mkdir(VirtualFilesystemNode* vnode, char* name);
         bool vfsdriver_remove(VirtualFilesystemNode* vnode, char* name);
         bool vfsdriver_truncate(VirtualFilesystemNode* vnode);
@@ -97,6 +99,10 @@ namespace Filesystem
         uint32_t m_clusterCount;
         // Allocation searches the FAT from here, which saves searching the clusters we know are used.
         uint32_t m_nextFreeCluster = 2;
+        // The last cluster that get_cluster_at found, which is the cluster at an index in the chain that starts at a cluster.
+        uint32_t m_lastChainStart = 0;
+        uint64_t m_lastChainIndex = 0;
+        uint32_t m_lastChainCluster = 0;
 
         uint32_t cluster_to_sector(uint32_t cluster) { return m_dataStart + (cluster - 2) * m_sectorsPerCluster; }
         uint32_t get_fat_entry(uint32_t cluster);
@@ -106,6 +112,7 @@ namespace Filesystem
         uint32_t get_first_cluster(VirtualFilesystemNode* vnode);
         uint32_t get_cluster_at(uint32_t firstCluster, uint64_t index, bool shouldAllocate);
         bool read_slot(uint32_t directoryCluster, uint64_t slot, uint64_t& inode, FAT32DirectoryEntry& entry);
+        bool find_entry(uint32_t directoryCluster, const char* shortName, uint64_t& inode, FAT32DirectoryEntry& entry);
         bool find_free_slot(uint32_t directoryCluster, uint64_t& inode);
         bool is_empty_directory(uint32_t directoryCluster);
         void read_entry(uint64_t inode, FAT32DirectoryEntry& entry);

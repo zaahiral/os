@@ -74,7 +74,7 @@ class TarReader : VFSDriver
     VirtualFilesystemDirectoryEntry* vfsdriver_readdir(VirtualFilesystemNode*, uint64_t index);
     VirtualFilesystemNode* vfsdriver_finddir(VirtualFilesystemNode*, char* name);
     // The initrd is read-only, so files cannot be created, removed or emptied in it.
-    VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode*, char* name) { return nullptr; }
+    VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode*, char* name, bool isExclusive) { return nullptr; }
     VirtualFilesystemNode* vfsdriver_mkdir(VirtualFilesystemNode*, char* name) { return nullptr; }
     bool vfsdriver_remove(VirtualFilesystemNode*, char* name) { return false; }
     bool vfsdriver_truncate(VirtualFilesystemNode*) { return false; }

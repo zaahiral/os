@@ -2,6 +2,49 @@
 
 namespace Filesystem
 {
+    namespace
+    {
+        // Remove the . and .. parts of a path after checking that the preceding path is a directory.
+        bool normalise_path(char* path)
+        {
+            char* output = path;
+            char* input = path;
+            while (*input)
+            {
+                char* end = input;
+                while (*end && *end != '/') { end++; }
+                uint64_t length = end - input;
+                // The next part is found before anything is written, as the output may overwrite the separator.
+                char* next = *end ? end + 1 : end;
+                bool isCurrentDirectory = length == 1 && input[0] == '.';
+                bool isParentDirectory = length == 2 && input[0] == '.' && input[1] == '.';
+                if (isCurrentDirectory || isParentDirectory)
+                {
+                    *output = '\0';
+                    auto directory = VirtualFilesystemManager::instance().open_file(path, 0);
+                    bool isDirectory = directory && (directory->flags & VirtualFilesystemNode::VFS_DIRECTORY);
+                    if (directory) { delete directory; }
+                    if (!isDirectory) { return false; }
+                }
+                if (isParentDirectory)
+                {
+                    // Remove the last part that was kept, along with the separator before it.
+                    while (output > path && *(output - 1) != '/') { output--; }
+                    if (output > path) { output--; }
+                }
+                else if (length && !isCurrentDirectory)
+                {
+                    // The output is never ahead of the input, so the part can be copied forwards.
+                    if (output > path) { *output++ = '/'; }
+                    for (uint64_t i = 0; i < length; i++) { output[i] = input[i]; }
+                    output += length;
+                }
+                input = next;
+            }
+            *output = '\0';
+            return true;
+        }
+    }
 
     int VirtualFilesystemManager::register_filesystem(RealFilesystem filesystem)
     {
@@ -36,7 +79,7 @@ namespace Filesystem
 
     VirtualFilesystemNode* VirtualFilesystemManager::finddir(VirtualFilesystemNode* vnode, char* filename)
     {
-        if (!vnode) return nullptr;
+        if (!vnode || !(vnode->flags & VirtualFilesystemNode::VFS_DIRECTORY)) return nullptr;
         return vnode->driver->vfsdriver_finddir(vnode, filename);
     }
 
@@ -54,8 +97,14 @@ namespace Filesystem
 
     VirtualFilesystemNode* VirtualFilesystemManager::open_file(char* filename, uint64_t flags)
     {
-        char fixedLengthFileName[180];
+        char fixedLengthFileName[MAX_PATH_LENGTH];
+        // cOS has no working directory, so a path that starts with / is the same as one that does not.
+        while (*filename == '/') { filename++; }
+        uint64_t filenameLength = strlen(filename);
+        if (filenameLength >= MAX_PATH_LENGTH) { return nullptr; }
+        bool needsDirectory = filenameLength && filename[filenameLength - 1] == '/';
         strcpy(fixedLengthFileName, filename);
+        if (!normalise_path(fixedLengthFileName)) { return nullptr; }
 
         // If the first part of the path is a mount point, we start from that filesystem's root and remove the mount point from the path.
         // Otherwise, we start from the root of the first mounted filesystem.
@@ -87,7 +136,7 @@ namespace Filesystem
             {
                 if (*p=='/') { substringIndex = p - fixedLengthFileName; break; }
             }
-            char substring[180];
+            char substring[MAX_PATH_LENGTH];
             if (substringIndex)
             {
                 // The node is a directory, find next node by calling driver's finddir.
@@ -109,12 +158,18 @@ namespace Filesystem
             // A directory in the path does not exist.
             if (!node) { return nullptr; }
         }
+        if (needsDirectory && !(node->flags & VirtualFilesystemNode::VFS_DIRECTORY))
+        {
+            delete node;
+            return nullptr;
+        }
         return node;
     }
 
     VirtualFilesystemNode* VirtualFilesystemManager::open_parent(char* filename, char* directoryName, char*& name)
     {
         // Split the path into the directory and the name of the file in it.
+        if (strlen(filename) >= MAX_PATH_LENGTH) { return nullptr; }
         strcpy(directoryName, filename);
         name = directoryName;
         for (char* p = directoryName; *p; p++)
@@ -133,20 +188,20 @@ namespace Filesystem
         return directory;
     }
 
-    VirtualFilesystemNode* VirtualFilesystemManager::create_file(char* filename)
+    VirtualFilesystemNode* VirtualFilesystemManager::create_file(char* filename, bool isExclusive)
     {
-        char directoryName[180];
+        char directoryName[MAX_PATH_LENGTH];
         char* name;
         auto directory = open_parent(filename, directoryName, name);
         if (!directory) { return nullptr; }
-        auto file = directory->driver->vfsdriver_create(directory, name);
+        auto file = directory->driver->vfsdriver_create(directory, name, isExclusive);
         delete directory;
         return file;
     }
 
     VirtualFilesystemNode* VirtualFilesystemManager::create_directory(char* filename)
     {
-        char directoryName[180];
+        char directoryName[MAX_PATH_LENGTH];
         char* name;
         auto directory = open_parent(filename, directoryName, name);
         if (!directory) { return nullptr; }
@@ -157,7 +212,7 @@ namespace Filesystem
 
     bool VirtualFilesystemManager::remove(char* filename)
     {
-        char directoryName[180];
+        char directoryName[MAX_PATH_LENGTH];
         char* name;
         auto directory = open_parent(filename, directoryName, name);
         if (!directory) { return false; }

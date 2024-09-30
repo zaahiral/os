@@ -102,6 +102,24 @@ typedef struct
     Elf64_Xword sh_entsize;
 } Elf64_Shdr;
 
+// Sections of thread-local variables have this flag.
+#define SHF_TLS 0x400
+
+typedef struct
+{
+    Elf64_Word p_type;
+    Elf64_Word p_flags;
+    Elf64_Off p_offset;
+    Elf64_Addr p_vaddr;
+    Elf64_Addr p_paddr;
+    Elf64_Xword p_filesz;
+    Elf64_Xword p_memsz;
+    Elf64_Xword p_align;
+} Elf64_Phdr;
+
+// The program header type of the segment that holds the starting values of thread-local variables.
+#define PT_TLS 7
+
 enum sh_type
 {
     SHT_NULL = 0,
@@ -120,15 +138,19 @@ enum sh_type
 
 namespace Loader
 {
-    // Each program has a 64KiB stack at 0x1000000.
-    static constexpr uint64_t USER_STACK_BASE = 0x1000000;
-    static constexpr uint64_t USER_STACK_SIZE = 0x10000;
     // Memory from mmap starts at 1GiB, well away from the program, its heap and its stack.
     static constexpr uint64_t USER_MAP_BASE = 0x40000000;
+    // Each program has a 1MiB stack, which ends 1MiB below the memory from mmap, so a large program such as cc1 fits
+    // below it, and the heap can grow up to it.
+    static constexpr uint64_t USER_STACK_SIZE = 0x100000;
+    static constexpr uint64_t USER_STACK_BASE = USER_MAP_BASE - 2 * USER_STACK_SIZE;
     // A program's command line is its path followed by its arguments, separated by spaces.
     static constexpr uint64_t MAX_COMMAND_LINE_LENGTH = 4096;
     static constexpr uint64_t MAX_PROGRAM_ARGUMENTS = 128;
-    static constexpr uint64_t MAX_ENVIRONMENT_LENGTH = 1024;
+    static constexpr uint64_t MAX_ENVIRONMENT_LENGTH = 4096;
+    // Programs started without an environment, such as by the shells, find programs in initrd/bin and keep temporary
+    // files on the disk.
+    static constexpr char DEFAULT_ENVIRONMENT[] = "PATH=/initrd/bin\0TMPDIR=/disk\0";
 
     // The command line and environment of a program that is being started, which its task keeps until the program is loaded.
     struct ProgramStart

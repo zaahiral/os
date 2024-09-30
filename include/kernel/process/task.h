@@ -130,6 +130,8 @@ namespace Task
         void set_heap_start(uint64_t heapStart) { m_heapStart = heapStart; }
         uint64_t get_program_break() { return m_programBreak; }
         void set_program_break(uint64_t programBreak) { m_programBreak = programBreak; }
+        uint64_t get_thread_pointer() { return m_threadPointer; }
+        void set_thread_pointer(uint64_t threadPointer) { m_threadPointer = threadPointer; }
         uint64_t get_next_map_address() { return m_nextMapAddress; }
         void set_next_map_address(uint64_t nextMapAddress) { m_nextMapAddress = nextMapAddress; }
         uint64_t get_priority() { return m_priority; }
@@ -156,6 +158,8 @@ namespace Task
         // A user-space program's heap runs from the heap start to the program break, and mmap hands out memory above it.
         uint64_t m_heapStart = 0;
         uint64_t m_programBreak = 0;
+        // The FS base of a user-space program, which points to its thread-local variables, or 0 if it has none.
+        uint64_t m_threadPointer = 0;
         uint64_t m_nextMapAddress = 0;
         TaskState m_state = NOT_STARTED;
         // When the task exits, its exit code is kept for the task that waits for it.

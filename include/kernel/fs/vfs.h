@@ -20,8 +20,9 @@ namespace Filesystem
         virtual void vfsdriver_close(VirtualFilesystemNode*) = 0;
         virtual VirtualFilesystemDirectoryEntry* vfsdriver_readdir(VirtualFilesystemNode*, uint64_t index) = 0;
         virtual VirtualFilesystemNode* vfsdriver_finddir(VirtualFilesystemNode*, char* name) = 0;
-        // Create a file in a directory node, or return nullptr if the filesystem is read-only.
-        virtual VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode*, char* name) = 0;
+        // Create a file in a directory node, or open it if it exists and isExclusive is false.
+        // Returns nullptr if the filesystem is read-only.
+        virtual VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode*, char* name, bool isExclusive) = 0;
         // Create a directory in a directory node, or return nullptr if the filesystem is read-only.
         virtual VirtualFilesystemNode* vfsdriver_mkdir(VirtualFilesystemNode*, char* name) = 0;
         // Remove a file or an empty directory from a directory node, and return false if it cannot be removed.
@@ -67,6 +68,9 @@ namespace Filesystem
 
     class VirtualFilesystemManager;
 
+    // Paths that are this long or longer cannot be opened.
+    static constexpr uint64_t MAX_PATH_LENGTH = 180;
+
     // Concrete filesystems are mounted in the virtual filesystem.
     // The virtual filesystem calls the concrete filesystem's driver for file operations.
     class RealFilesystem
@@ -100,8 +104,9 @@ namespace Filesystem
         void unregister_filesystem(int mountNum);
         
         VirtualFilesystemNode* open_file(char* filename, uint64_t flags);
-        // Create a file, or open it if it already exists. Returns nullptr if the filesystem is read-only.
-        VirtualFilesystemNode* create_file(char* filename);
+        // Create a file, or open it if it already exists and isExclusive is false.
+        // Returns nullptr if the filesystem is read-only.
+        VirtualFilesystemNode* create_file(char* filename, bool isExclusive = false);
         // Create a directory. Returns nullptr if it already exists, or the filesystem is read-only.
         VirtualFilesystemNode* create_directory(char* filename);
         // Remove a file or an empty directory, and return false if it cannot be removed.

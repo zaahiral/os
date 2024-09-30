@@ -166,6 +166,8 @@ namespace Filesystem
     // Free every cluster in a chain, so that they can be allocated again.
     void FAT32Driver::free_chain(uint32_t cluster)
     {
+        // The freed clusters may start another chain later, so the last chain found is forgotten.
+        m_lastChainStart = 0;
         while (cluster >= 2 && cluster < FAT32_END_OF_CHAIN)
         {
             uint32_t next = get_fat_entry(cluster);
@@ -188,7 +190,14 @@ namespace Filesystem
     uint32_t FAT32Driver::get_cluster_at(uint32_t firstCluster, uint64_t index, bool shouldAllocate)
     {
         uint32_t cluster = firstCluster;
-        for (uint64_t i = 0; i < index; i++)
+        uint64_t i = 0;
+        // Files are mostly read and written in order, so we continue from the last cluster found in the same chain.
+        if (firstCluster == m_lastChainStart && index >= m_lastChainIndex)
+        {
+            cluster = m_lastChainCluster;
+            i = m_lastChainIndex;
+        }
+        for (; i < index; i++)
         {
             uint32_t next = get_fat_entry(cluster);
             if (next >= FAT32_END_OF_CHAIN)
@@ -200,6 +209,9 @@ namespace Filesystem
             }
             cluster = next;
         }
+        m_lastChainStart = firstCluster;
+        m_lastChainIndex = index;
+        m_lastChainCluster = cluster;
         return cluster;
     }
 
@@ -268,25 +280,27 @@ namespace Filesystem
         return node;
     }
 
+    // Find the entry with a name in a directory. The caller holds the spinlock, so the entry cannot change before it is used.
+    bool FAT32Driver::find_entry(uint32_t directoryCluster, const char* shortName, uint64_t& inode, FAT32DirectoryEntry& entry)
+    {
+        for (uint64_t slot = 0; read_slot(directoryCluster, slot, inode, entry); slot++)
+        {
+            if (entry.name[0] == FAT32_ENTRY_END) { break; }
+            if (is_visible_entry(entry) && names_equal(entry.name, shortName)) { return true; }
+        }
+        return false;
+    }
+
     VirtualFilesystemNode* FAT32Driver::vfsdriver_finddir(VirtualFilesystemNode* vnode, char* name)
     {
         char shortName[11];
         if (!to_short_name(name, shortName)) { return nullptr; }
         m_spinlock.acquire();
-        auto directoryCluster = get_first_cluster(vnode);
         uint64_t inode;
         FAT32DirectoryEntry entry;
-        for (uint64_t slot = 0; read_slot(directoryCluster, slot, inode, entry); slot++)
-        {
-            if (entry.name[0] == FAT32_ENTRY_END) { break; }
-            if (is_visible_entry(entry) && names_equal(entry.name, shortName))
-            {
-                m_spinlock.release();
-                return make_vnode(inode, entry);
-            }
-        }
+        bool isFound = find_entry(get_first_cluster(vnode), shortName, inode, entry);
         m_spinlock.release();
-        return nullptr;
+        return isFound ? make_vnode(inode, entry) : nullptr;
     }
 
     VirtualFilesystemDirectoryEntry* FAT32Driver::vfsdriver_readdir(VirtualFilesystemNode* vnode, uint64_t index)
@@ -359,11 +373,12 @@ namespace Filesystem
     uint64_t FAT32Driver::vfsdriver_write(VirtualFilesystemNode* vnode, uint64_t offset, uint64_t size, char* buf)
     {
         if (!(vnode->flags & VirtualFilesystemNode::VFS_FILE)) { return 0; }
+        // A FAT32 file's size is 32 bits, so a file stops just short of 4GiB.
+        if (offset >= FAT32_MAX_FILE_SIZE) { return 0; }
+        if (size > FAT32_MAX_FILE_SIZE - offset) { size = FAT32_MAX_FILE_SIZE - offset; }
         m_spinlock.acquire();
         FAT32DirectoryEntry entry;
         read_entry(vnode->inodeNum, entry);
-        // Files cannot have holes, so a write past the end starts at the end.
-        if (offset > entry.size) { offset = entry.size; }
         if (!get_entry_cluster(entry))
         {
             uint32_t cluster = allocate_cluster();
@@ -377,6 +392,23 @@ namespace Filesystem
 
         uint64_t clusterSize = m_sectorsPerCluster * ATA_SECTOR_SIZE;
         uint8_t sector[ATA_SECTOR_SIZE];
+        // A write past the end leaves a gap of zeros. New clusters are filled with zeros, but the rest of the last
+        // cluster may hold old data, so that part of the gap is cleared.
+        uint64_t gapEnd = BYTE_ALIGN_UP(entry.size, clusterSize) < offset ? BYTE_ALIGN_UP(entry.size, clusterSize) : offset;
+        for (uint64_t position = entry.size; position < gapEnd;)
+        {
+            uint32_t cluster = get_cluster_at(get_entry_cluster(entry), position / clusterSize, false);
+            if (!cluster) { break; }
+            uint32_t sectorNumber = cluster_to_sector(cluster) + (position % clusterSize) / ATA_SECTOR_SIZE;
+            Drivers::ATADriver::instance().read_sector(sectorNumber, sector);
+            uint64_t sectorOffset = position % ATA_SECTOR_SIZE;
+            uint64_t count = ATA_SECTOR_SIZE - sectorOffset;
+            if (count > gapEnd - position) { count = gapEnd - position; }
+            memset(&sector[sectorOffset], 0, count);
+            Drivers::ATADriver::instance().write_sector(sectorNumber, sector);
+            position += count;
+        }
+
         uint64_t bytesWritten = 0;
         while (bytesWritten < size)
         {
@@ -393,22 +425,26 @@ namespace Filesystem
             Drivers::ATADriver::instance().write_sector(sectorNumber, sector);
             bytesWritten += count;
         }
-        if (offset + bytesWritten > entry.size) { entry.size = offset + bytesWritten; }
+        if (bytesWritten && offset + bytesWritten > entry.size) { entry.size = offset + bytesWritten; }
         write_entry(vnode->inodeNum, entry);
         m_spinlock.release();
         return bytesWritten;
     }
 
-    VirtualFilesystemNode* FAT32Driver::vfsdriver_create(VirtualFilesystemNode* vnode, char* name)
+    VirtualFilesystemNode* FAT32Driver::vfsdriver_create(VirtualFilesystemNode* vnode, char* name, bool isExclusive)
     {
         char shortName[11];
         if (!to_short_name(name, shortName)) { return nullptr; }
-        auto existingNode = vfsdriver_finddir(vnode, name);
-        if (existingNode) { return existingNode; }
-
         m_spinlock.acquire();
+        auto directoryCluster = get_first_cluster(vnode);
         uint64_t inode;
-        if (!find_free_slot(get_first_cluster(vnode), inode))
+        FAT32DirectoryEntry entry;
+        if (find_entry(directoryCluster, shortName, inode, entry))
+        {
+            m_spinlock.release();
+            return isExclusive ? nullptr : make_vnode(inode, entry);
+        }
+        if (!find_free_slot(directoryCluster, inode))
         {
             m_spinlock.release();
             return nullptr;
@@ -425,18 +461,12 @@ namespace Filesystem
     {
         char shortName[11];
         if (!to_short_name(name, shortName)) { return nullptr; }
-        auto existingNode = vfsdriver_finddir(vnode, name);
-        if (existingNode)
-        {
-            delete existingNode;
-            return nullptr;
-        }
-
         m_spinlock.acquire();
         auto parentCluster = get_first_cluster(vnode);
         uint64_t inode;
+        FAT32DirectoryEntry existingEntry;
         uint32_t cluster = 0;
-        if (!find_free_slot(parentCluster, inode) || !(cluster = allocate_cluster()))
+        if (find_entry(parentCluster, shortName, inode, existingEntry) || !find_free_slot(parentCluster, inode) || !(cluster = allocate_cluster()))
         {
             m_spinlock.release();
             return nullptr;
@@ -458,20 +488,20 @@ namespace Filesystem
     // Unlike on Unix, a file is removed straight away, even if a program still has it open.
     bool FAT32Driver::vfsdriver_remove(VirtualFilesystemNode* vnode, char* name)
     {
-        auto node = vfsdriver_finddir(vnode, name);
-        if (!node) { return false; }
+        char shortName[11];
+        if (!to_short_name(name, shortName)) { return false; }
         m_spinlock.acquire();
+        uint64_t inode;
         FAT32DirectoryEntry entry;
-        read_entry(node->inodeNum, entry);
-        bool canRemove = !(entry.attributes & FAT32_ATTRIBUTE_DIRECTORY) || is_empty_directory(get_entry_cluster(entry));
+        bool canRemove = find_entry(get_first_cluster(vnode), shortName, inode, entry)
+            && (!(entry.attributes & FAT32_ATTRIBUTE_DIRECTORY) || is_empty_directory(get_entry_cluster(entry)));
         if (canRemove)
         {
             free_chain(get_entry_cluster(entry));
             entry.name[0] = FAT32_ENTRY_DELETED;
-            write_entry(node->inodeNum, entry);
+            write_entry(inode, entry);
         }
         m_spinlock.release();
-        delete node;
         return canRemove;
     }
 

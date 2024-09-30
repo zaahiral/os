@@ -30,11 +30,13 @@
 #define SYSCALL_CONSOLE_WRITE 24
 #define SYSCALL_UNLINK 25
 #define SYSCALL_MKDIR 26
+#define SYSCALL_DUP 27
 
 // Flags for SYSCALL_FOPEN.
 #define FILE_CREATE 0x1
 #define FILE_APPEND 0x2
-// With FILE_TRUNCATE, an existing file is emptied, and with FILE_CREATE and FILE_EXCLUSIVE, opening a file that exists fails.
+// With FILE_TRUNCATE, an existing file is emptied.
+// With FILE_CREATE and FILE_EXCLUSIVE, opening a file that already exists fails.
 #define FILE_TRUNCATE 0x4
 #define FILE_EXCLUSIVE 0x8
 
@@ -48,6 +50,7 @@ struct FileStatus
 {
     unsigned long long size;
     unsigned long long isDirectory;
+    unsigned long long inode;
 };
 
 #endif
