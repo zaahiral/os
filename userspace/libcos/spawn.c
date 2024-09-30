@@ -37,3 +37,41 @@ int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t* actions)
     *actions = NULL;
     return 0;
 }
+
+int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t* actions, int fd, int newFd)
+{
+    (*actions)->hasRedirection = 1;
+    return 0;
+}
+
+int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t* actions, int fd, const char* path, int flags, mode_t mode)
+{
+    (*actions)->hasRedirection = 1;
+    return 0;
+}
+
+/* A new program does not get its parent's open files, so a file the parent asks to close is closed already. */
+int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t* actions, int fd)
+{
+    return 0;
+}
+
+int posix_spawnattr_init(posix_spawnattr_t* attributes)
+{
+    *attributes = calloc(1, sizeof(struct __posix_spawnattr));
+    return *attributes ? 0 : ENOMEM;
+}
+
+int posix_spawnattr_destroy(posix_spawnattr_t* attributes)
+{
+    free(*attributes);
+    *attributes = NULL;
+    return 0;
+}
+
+/* cOS has no process groups, signals or scheduling policies, so the flags are kept but have no effect. */
+int posix_spawnattr_setflags(posix_spawnattr_t* attributes, short flags)
+{
+    (*attributes)->flags = flags;
+    return 0;
+}
