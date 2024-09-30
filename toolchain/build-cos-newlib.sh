@@ -40,9 +40,9 @@ rm -rf "$SYSROOT/usr/$TARGET"
 # libcos provides crt0.o, crti.o and crtn.o, which GCC links into every program, and the system call functions.
 mkdir build-libcos
 cd build-libcos
-for source in crt0.c syscalls.c crti.S crtn.S; do
+for source in crt0.c syscalls.c spawn.c crti.S crtn.S; do
     $TARGET-gcc -O2 -g -iquote "$REPO_DIR/include/kernel" -c "$REPO_DIR/userspace/libcos/$source" -o "${source%.*}.o"
 done
 cp crt0.o crti.o crtn.o "$SYSROOT/usr/lib/"
 rm -f "$SYSROOT/usr/lib/libcos.a"
-$TARGET-ar rcs "$SYSROOT/usr/lib/libcos.a" syscalls.o
+$TARGET-ar rcs "$SYSROOT/usr/lib/libcos.a" syscalls.o spawn.o

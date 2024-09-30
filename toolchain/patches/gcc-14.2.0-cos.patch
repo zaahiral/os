@@ -24,7 +24,7 @@ diff -ruN a/fixincludes/mkfixinc.sh b/fixincludes/mkfixinc.sh
 diff -ruN a/gcc/config/cos.h b/gcc/config/cos.h
 --- a/gcc/config/cos.h	1970-01-01 01:00:00.000000000 +0100
 +++ b/gcc/config/cos.h	2026-10-22 15:31:34.288778803 +0100
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +/* Target definitions for cOS, an x86-64 operating system written in C++.
 +   Programs are static ELF executables that are linked against newlib. */
 +
@@ -44,8 +44,9 @@ diff -ruN a/gcc/config/cos.h b/gcc/config/cos.h
 +#undef ENDFILE_SPEC
 +#define ENDFILE_SPEC "crtend.o%s crtn.o%s"
 +
++/* newlib calls the system calls in libcos, and libcos uses errno and environ from newlib, so they are searched together. */
 +#undef LIB_SPEC
-+#define LIB_SPEC "-lc"
++#define LIB_SPEC "--start-group -lc -lcos --end-group"
 +
 +/* cOS has no dynamic linker, so every program is linked statically. */
 +#undef LINK_SPEC
