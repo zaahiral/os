@@ -75,3 +75,38 @@ int posix_spawnattr_setflags(posix_spawnattr_t* attributes, short flags)
     (*attributes)->flags = flags;
     return 0;
 }
+
+int posix_spawnattr_getflags(const posix_spawnattr_t* attributes, short* flags)
+{
+    *flags = (*attributes)->flags;
+    return 0;
+}
+
+/* Join the arguments after the program's name into one string, separated by spaces. */
+static int join_arguments(char* const argv[], char* arguments)
+{
+    size_t length = 0;
+    arguments[0] = '\0';
+    for (int i = 1; argv[i]; i++)
+    {
+        size_t argumentLength = strlen(argv[i]);
+        if (!argumentLength || strchr(argv[i], ' ')) { return EINVAL; }
+        if (length + argumentLength + 2 > MAX_COMMAND_LINE_LENGTH) { return E2BIG; }
+        if (length) { arguments[length++] = ' '; }
+        memcpy(arguments + length, argv[i], argumentLength + 1);
+        length += argumentLength;
+    }
+    return 0;
+}
+
+/* Copy the environment into one block of strings, each with a null terminator, with an empty string after the last one. */
+static int join_environment(char* const envp[], char* environment)
+{
+    size_t length = 0;
+    for (int i = 0; envp && envp[i]; i++)
+    {
+        size_t variableLength = strlen(envp[i]) + 1;
+        if (length + variableLength + 1 > MAX_ENVIRONMENT_LENGTH) { return E2BIG; }
+        memcpy(environment + length, envp[i], variableLength);
+        length += variableLength;
+    }
