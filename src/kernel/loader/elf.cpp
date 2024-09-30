@@ -8,7 +8,7 @@ namespace Loader
         This is a loader for ELF-64 executables - refer to the ELF-64 Specification: https://uclibc.org/docs/elf-64-gen.pdf
     */
    extern "C" void start_userspace_task_iretq(void* entryPoint, void* kstack);
-   extern "C" void start_userspace_task_sysret(uint64_t entryPoint, uint64_t userStackPointer, uint64_t argc, uint64_t argv);
+   extern "C" void start_userspace_task_sysret(uint64_t entryPoint, uint64_t userStackPointer, uint64_t argc, uint64_t argv, uint64_t envp);
 
     bool check_elf_header_ident(Elf64_Ehdr* header)
     {
@@ -133,11 +133,19 @@ namespace Loader
         return true;
     }
 
-    // Copy a command line onto the top of the program's stack and split it into words, followed by the argv array that
-    // points to them. Returns the stack pointer that the program starts with.
-    uint64_t push_arguments(const char* commandLine, uint64_t& argc, uint64_t& argv)
+    // Copy the environment and a command line onto the top of the program's stack and split the command line into words,
+    // followed by the envp and argv arrays that point to them. Returns the stack pointer that the program starts with.
+    uint64_t push_arguments(const char* commandLine, const char* environment, uint64_t& argc, uint64_t& argv, uint64_t& envp)
     {
-        auto stackPointer = USER_STACK_BASE + USER_STACK_SIZE - (strlen(commandLine) + 1);
+        uint64_t environmentLength = 0;
+        uint64_t variableCount = 0;
+        for (; environment[environmentLength]; variableCount++) { environmentLength += strlen(environment + environmentLength) + 1; }
+        // The empty string after the last variable is copied too.
+        auto stackPointer = USER_STACK_BASE + USER_STACK_SIZE - (environmentLength + 1);
+        auto variables = reinterpret_cast<char*>(stackPointer);
+        memcpy(variables, (char*)environment, environmentLength + 1);
+
+        stackPointer -= strlen(commandLine) + 1;
         auto words = reinterpret_cast<char*>(stackPointer);
         strcpy(words, (char*)commandLine);
 
@@ -152,7 +160,14 @@ namespace Loader
             while (*c && *c != ' ') { c++; }
         }
 
-        // The argv array ends with a null pointer, and is aligned to 16 bytes.
+        // The envp and argv arrays end with null pointers, and are aligned to 16 bytes.
+        stackPointer = BYTE_ALIGN_DOWN(stackPointer - (variableCount + 1) * sizeof(char*), 16);
+        auto envpArray = reinterpret_cast<char**>(stackPointer);
+        char* variable = variables;
+        for (uint64_t i = 0; i < variableCount; i++, variable += strlen(variable) + 1) { envpArray[i] = variable; }
+        envpArray[variableCount] = nullptr;
+        envp = stackPointer;
+
         stackPointer = BYTE_ALIGN_DOWN(stackPointer - (argc + 1) * sizeof(char*), 16);
         auto argvArray = reinterpret_cast<char**>(stackPointer);
         for (uint64_t i = 0; i < argc; i++) { argvArray[i] = arguments[i]; }
@@ -166,7 +181,8 @@ namespace Loader
     {
         Task::TaskManager::instance().lock();
         auto task = Task::TaskManager::instance().get_current_task_pointer();
-        auto commandLine = static_cast<char*>(task->get_argument());
+        auto start = static_cast<ProgramStart*>(task->get_argument());
+        auto commandLine = start->commandLine;
         // The program's path is the first word of its command line.
         char path[MAX_COMMAND_LINE_LENGTH];
         uint64_t length = 0;
@@ -177,29 +193,43 @@ namespace Loader
         auto entryPoint = task->get_entry_point();
         uint64_t argc = 0;
         uint64_t argv = 0;
+        uint64_t envp = 0;
         uint64_t stackPointer = 0;
-        if (isLoaded) { stackPointer = push_arguments(commandLine, argc, argv); }
-        delete[] commandLine;
+        if (isLoaded) { stackPointer = push_arguments(commandLine, start->environment, argc, argv, envp); }
+        delete start;
         Task::TaskManager::instance().unlock();
 
         // A program that cannot be loaded exits straight away with an error code.
         if (!isLoaded) { Task::TaskManager::instance().exit_task(-1); }
-        start_userspace_task_sysret((uint64_t)entryPoint, stackPointer, argc, argv);
+        start_userspace_task_sysret((uint64_t)entryPoint, stackPointer, argc, argv, envp);
     }
 
-    Task::TaskID spawn_user_program(const char* path, const char* arguments)
+    Task::TaskID spawn_user_program(const char* path, const char* arguments, const char* environment)
     {
-        // The task keeps its own copy of the command line, which it frees once the program is loaded.
+        // The task keeps its own copy of the command line and environment, which it frees once the program is loaded.
         // Arguments that would make the command line too long are cut short.
-        auto argument = new char[MAX_COMMAND_LINE_LENGTH];
+        auto start = new ProgramStart();
+        auto argument = start->commandLine;
         uint64_t length = 0;
         for (const char* c = path; *c && length < MAX_COMMAND_LINE_LENGTH - 1; c++) { argument[length++] = *c; }
         if (arguments && *arguments && length < MAX_COMMAND_LINE_LENGTH - 1) { argument[length++] = ' '; }
         for (const char* c = arguments; c && *c && length < MAX_COMMAND_LINE_LENGTH - 1; c++) { argument[length++] = *c; }
         argument[length] = '\0';
+
+        // Variables that do not fit in the environment are left out.
+        length = 0;
+        while (environment && environment[length])
+        {
+            uint64_t variableLength = strlen(environment + length) + 1;
+            if (length + variableLength >= MAX_ENVIRONMENT_LENGTH) { break; }
+            memcpy(start->environment + length, (char*)environment + length, variableLength);
+            length += variableLength;
+        }
+        start->environment[length] = '\0';
+
         auto task = Task::TaskManager::instance().create_new_user_task();
         task.set_entry_point((void*)& user_program_task);
-        task.set_argument(argument);
+        task.set_argument(start);
         Task::TaskManager::instance().add_task(task);
         return task.get_task_id();
     }

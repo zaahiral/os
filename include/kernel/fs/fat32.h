@@ -59,7 +59,7 @@ namespace Filesystem
         uint32_t size;
     } __attribute__((packed));
 
-    // A driver for FAT32 filesystems on the ATA disk, which supports reading, writing and creating files with 8.3 names.
+    // A driver for FAT32 filesystems on the ATA disk, which supports reading, writing, creating and removing files and directories with 8.3 names.
     // A node's inode number is the position of its directory entry on the disk, and the root directory has inode 0.
     class FAT32Driver : VFSDriver
     {
@@ -81,6 +81,9 @@ namespace Filesystem
         VirtualFilesystemDirectoryEntry* vfsdriver_readdir(VirtualFilesystemNode* vnode, uint64_t index);
         VirtualFilesystemNode* vfsdriver_finddir(VirtualFilesystemNode* vnode, char* name);
         VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode* vnode, char* name);
+        VirtualFilesystemNode* vfsdriver_mkdir(VirtualFilesystemNode* vnode, char* name);
+        bool vfsdriver_remove(VirtualFilesystemNode* vnode, char* name);
+        bool vfsdriver_truncate(VirtualFilesystemNode* vnode);
         uint64_t vfsdriver_filelen(VirtualFilesystemNode* vnode);
     private:
         FAT32Driver() {}
@@ -99,9 +102,12 @@ namespace Filesystem
         uint32_t get_fat_entry(uint32_t cluster);
         void set_fat_entry(uint32_t cluster, uint32_t value);
         uint32_t allocate_cluster();
+        void free_chain(uint32_t cluster);
         uint32_t get_first_cluster(VirtualFilesystemNode* vnode);
         uint32_t get_cluster_at(uint32_t firstCluster, uint64_t index, bool shouldAllocate);
         bool read_slot(uint32_t directoryCluster, uint64_t slot, uint64_t& inode, FAT32DirectoryEntry& entry);
+        bool find_free_slot(uint32_t directoryCluster, uint64_t& inode);
+        bool is_empty_directory(uint32_t directoryCluster);
         void read_entry(uint64_t inode, FAT32DirectoryEntry& entry);
         void write_entry(uint64_t inode, FAT32DirectoryEntry& entry);
         VirtualFilesystemNode* make_vnode(uint64_t inode, FAT32DirectoryEntry& entry);

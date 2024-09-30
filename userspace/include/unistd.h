@@ -14,7 +14,7 @@ int64_t close(int64_t fd) { return syscall(SYSCALL_FCLOSE, fd); }
 int64_t readdir(const char* path, uint64_t index, char* name) { return syscall(SYSCALL_READDIR, (uint64_t)path, index, (uint64_t)name); }
 
 // Start a program with a string of arguments separated by spaces, and return its task ID.
-int64_t spawn(const char* path, const char* arguments = nullptr) { return syscall(SYSCALL_SPAWN, (uint64_t)path, (uint64_t)arguments); }
+int64_t spawn(const char* path, const char* arguments = nullptr) { return syscall(SYSCALL_SPAWN, (uint64_t)path, (uint64_t)arguments, 0); }
 // Wait for a program to exit, and return its exit code.
 int64_t wait(int64_t tid) { return syscall(SYSCALL_WAIT, tid); }
 

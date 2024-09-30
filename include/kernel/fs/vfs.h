@@ -22,6 +22,12 @@ namespace Filesystem
         virtual VirtualFilesystemNode* vfsdriver_finddir(VirtualFilesystemNode*, char* name) = 0;
         // Create a file in a directory node, or return nullptr if the filesystem is read-only.
         virtual VirtualFilesystemNode* vfsdriver_create(VirtualFilesystemNode*, char* name) = 0;
+        // Create a directory in a directory node, or return nullptr if the filesystem is read-only.
+        virtual VirtualFilesystemNode* vfsdriver_mkdir(VirtualFilesystemNode*, char* name) = 0;
+        // Remove a file or an empty directory from a directory node, and return false if it cannot be removed.
+        virtual bool vfsdriver_remove(VirtualFilesystemNode*, char* name) = 0;
+        // Empty a file, and return false if the filesystem is read-only.
+        virtual bool vfsdriver_truncate(VirtualFilesystemNode*) = 0;
         virtual uint64_t vfsdriver_filelen(VirtualFilesystemNode*) = 0;
     };
 
@@ -96,6 +102,12 @@ namespace Filesystem
         VirtualFilesystemNode* open_file(char* filename, uint64_t flags);
         // Create a file, or open it if it already exists. Returns nullptr if the filesystem is read-only.
         VirtualFilesystemNode* create_file(char* filename);
+        // Create a directory. Returns nullptr if it already exists, or the filesystem is read-only.
+        VirtualFilesystemNode* create_directory(char* filename);
+        // Remove a file or an empty directory, and return false if it cannot be removed.
+        bool remove(char* filename);
+        // Empty a file, and return false if the filesystem is read-only.
+        bool truncate(VirtualFilesystemNode* vnode);
         // Read count bytes from offset into buf.
         uint64_t read(VirtualFilesystemNode* vnode, uint64_t offset, uint64_t count, void *buf);
         // Write count bytes from offset into buf.
@@ -107,6 +119,8 @@ namespace Filesystem
         uint64_t filelen(VirtualFilesystemNode* vnode);
     private:
         VirtualFilesystemManager() { }
+        // Open the directory that a path is in, and point name at the last part of the path, which is copied into directoryName.
+        VirtualFilesystemNode* open_parent(char* filename, char* directoryName, char*& name);
         int m_fsAllocNum = 0;
         Common::DoublyLinkedList<RealFilesystem> m_mountedFilesystems;
     };

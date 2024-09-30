@@ -79,13 +79,13 @@ enable_syscall_sysret:
     wrmsr
     ret
 
-; Fake a syscall stack to sysret into ring 3. The program's argc and argv are passed in rdi and rsi, as a C function expects.
+; Fake a syscall stack to sysret into ring 3. The program's argc, argv and envp are passed in rdi, rsi and rdx, as a C function expects.
 start_userspace_task_sysret: 
     mov rsp, rsi
-    mov r8, rcx
+    mov rsi, rcx
     mov rcx, rdi
     mov rdi, rdx
-    mov rsi, r8
+    mov rdx, r8
     ; Enable interrupts in RFLAGS.
     mov r11, 0x202
     o64 sysret

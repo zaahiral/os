@@ -72,6 +72,18 @@ namespace Filesystem
             entry.firstClusterHigh = cluster >> 16;
             entry.firstClusterLow = cluster & 0xFFFF;
         }
+
+        // Fill in the directory entry of a new file or directory, whose contents start at a cluster, or 0 if it is empty.
+        void make_entry(FAT32DirectoryEntry& entry, const char* shortName, uint8_t attributes, uint32_t cluster)
+        {
+            memset(&entry, 0, sizeof(entry));
+            memcpy(entry.name, (char*)shortName, sizeof(entry.name));
+            entry.attributes = attributes;
+            entry.creationDate = FAT32_DEFAULT_DATE;
+            entry.accessedDate = FAT32_DEFAULT_DATE;
+            entry.modificationDate = FAT32_DEFAULT_DATE;
+            set_entry_cluster(entry, cluster);
+        }
     }
 
     bool FAT32Driver::mount(const char* mountPoint)
@@ -151,6 +163,18 @@ namespace Filesystem
         return 0;
     }
 
+    // Free every cluster in a chain, so that they can be allocated again.
+    void FAT32Driver::free_chain(uint32_t cluster)
+    {
+        while (cluster >= 2 && cluster < FAT32_END_OF_CHAIN)
+        {
+            uint32_t next = get_fat_entry(cluster);
+            set_fat_entry(cluster, 0);
+            if (cluster < m_nextFreeCluster) { m_nextFreeCluster = cluster; }
+            cluster = next;
+        }
+    }
+
     uint32_t FAT32Driver::get_first_cluster(VirtualFilesystemNode* vnode)
     {
         if (!vnode->inodeNum) { return m_rootCluster; }
@@ -188,6 +212,33 @@ namespace Filesystem
         uint64_t slotInCluster = slot % slotsPerCluster;
         inode = (cluster_to_sector(cluster) + slotInCluster / FAT32_ENTRIES_PER_SECTOR) * FAT32_ENTRIES_PER_SECTOR + slotInCluster % FAT32_ENTRIES_PER_SECTOR;
         read_entry(inode, entry);
+        return true;
+    }
+
+    // Find a free slot in a directory, adding a cluster to the directory if it is full. Returns false if the disk is full.
+    bool FAT32Driver::find_free_slot(uint32_t directoryCluster, uint64_t& inode)
+    {
+        FAT32DirectoryEntry entry;
+        uint64_t slot = 0;
+        for (; read_slot(directoryCluster, slot, inode, entry); slot++)
+        {
+            if (entry.name[0] == FAT32_ENTRY_END || (uint8_t)entry.name[0] == FAT32_ENTRY_DELETED) { return true; }
+        }
+        // The new cluster is filled with zeros, which are free entries.
+        uint64_t slotsPerCluster = m_sectorsPerCluster * FAT32_ENTRIES_PER_SECTOR;
+        return get_cluster_at(directoryCluster, slot / slotsPerCluster, true) && read_slot(directoryCluster, slot, inode, entry);
+    }
+
+    // A directory is empty if it holds nothing but its . and .. entries.
+    bool FAT32Driver::is_empty_directory(uint32_t directoryCluster)
+    {
+        uint64_t inode;
+        FAT32DirectoryEntry entry;
+        for (uint64_t slot = 0; read_slot(directoryCluster, slot, inode, entry); slot++)
+        {
+            if (entry.name[0] == FAT32_ENTRY_END) { break; }
+            if (is_visible_entry(entry)) { return false; }
+        }
         return true;
     }
 
@@ -356,35 +407,85 @@ namespace Filesystem
         if (existingNode) { return existingNode; }
 
         m_spinlock.acquire();
-        auto directoryCluster = get_first_cluster(vnode);
         uint64_t inode;
-        FAT32DirectoryEntry entry;
-        uint64_t slot = 0;
-        bool hasFreeSlot = false;
-        for (; read_slot(directoryCluster, slot, inode, entry); slot++)
+        if (!find_free_slot(get_first_cluster(vnode), inode))
         {
-            if (entry.name[0] == FAT32_ENTRY_END || (uint8_t)entry.name[0] == FAT32_ENTRY_DELETED) { hasFreeSlot = true; break; }
+            m_spinlock.release();
+            return nullptr;
         }
-        if (!hasFreeSlot)
-        {
-            // The directory is full, so we add a cluster to it, which is filled with free entries.
-            uint64_t slotsPerCluster = m_sectorsPerCluster * FAT32_ENTRIES_PER_SECTOR;
-            if (!get_cluster_at(directoryCluster, slot / slotsPerCluster, true) || !read_slot(directoryCluster, slot, inode, entry))
-            {
-                m_spinlock.release();
-                return nullptr;
-            }
-        }
-
+        // A new file has no clusters until it is written to.
         FAT32DirectoryEntry newEntry;
-        memset(&newEntry, 0, sizeof(newEntry));
-        memcpy(newEntry.name, shortName, sizeof(newEntry.name));
-        newEntry.attributes = FAT32_ATTRIBUTE_ARCHIVE;
-        newEntry.creationDate = FAT32_DEFAULT_DATE;
-        newEntry.accessedDate = FAT32_DEFAULT_DATE;
-        newEntry.modificationDate = FAT32_DEFAULT_DATE;
+        make_entry(newEntry, shortName, FAT32_ATTRIBUTE_ARCHIVE, 0);
         write_entry(inode, newEntry);
         m_spinlock.release();
         return make_vnode(inode, newEntry);
+    }
+
+    VirtualFilesystemNode* FAT32Driver::vfsdriver_mkdir(VirtualFilesystemNode* vnode, char* name)
+    {
+        char shortName[11];
+        if (!to_short_name(name, shortName)) { return nullptr; }
+        auto existingNode = vfsdriver_finddir(vnode, name);
+        if (existingNode)
+        {
+            delete existingNode;
+            return nullptr;
+        }
+
+        m_spinlock.acquire();
+        auto parentCluster = get_first_cluster(vnode);
+        uint64_t inode;
+        uint32_t cluster = 0;
+        if (!find_free_slot(parentCluster, inode) || !(cluster = allocate_cluster()))
+        {
+            m_spinlock.release();
+            return nullptr;
+        }
+        // A directory starts with . for itself and .. for its parent, and .. is cluster 0 when the parent is the root.
+        FAT32DirectoryEntry dotEntry;
+        make_entry(dotEntry, ".          ", FAT32_ATTRIBUTE_DIRECTORY, cluster);
+        write_entry(cluster_to_sector(cluster) * FAT32_ENTRIES_PER_SECTOR, dotEntry);
+        make_entry(dotEntry, "..         ", FAT32_ATTRIBUTE_DIRECTORY, vnode->inodeNum ? parentCluster : 0);
+        write_entry(cluster_to_sector(cluster) * FAT32_ENTRIES_PER_SECTOR + 1, dotEntry);
+
+        FAT32DirectoryEntry newEntry;
+        make_entry(newEntry, shortName, FAT32_ATTRIBUTE_DIRECTORY, cluster);
+        write_entry(inode, newEntry);
+        m_spinlock.release();
+        return make_vnode(inode, newEntry);
+    }
+
+    // Unlike on Unix, a file is removed straight away, even if a program still has it open.
+    bool FAT32Driver::vfsdriver_remove(VirtualFilesystemNode* vnode, char* name)
+    {
+        auto node = vfsdriver_finddir(vnode, name);
+        if (!node) { return false; }
+        m_spinlock.acquire();
+        FAT32DirectoryEntry entry;
+        read_entry(node->inodeNum, entry);
+        bool canRemove = !(entry.attributes & FAT32_ATTRIBUTE_DIRECTORY) || is_empty_directory(get_entry_cluster(entry));
+        if (canRemove)
+        {
+            free_chain(get_entry_cluster(entry));
+            entry.name[0] = FAT32_ENTRY_DELETED;
+            write_entry(node->inodeNum, entry);
+        }
+        m_spinlock.release();
+        delete node;
+        return canRemove;
+    }
+
+    bool FAT32Driver::vfsdriver_truncate(VirtualFilesystemNode* vnode)
+    {
+        if (!(vnode->flags & VirtualFilesystemNode::VFS_FILE)) { return false; }
+        m_spinlock.acquire();
+        FAT32DirectoryEntry entry;
+        read_entry(vnode->inodeNum, entry);
+        free_chain(get_entry_cluster(entry));
+        set_entry_cluster(entry, 0);
+        entry.size = 0;
+        write_entry(vnode->inodeNum, entry);
+        m_spinlock.release();
+        return true;
     }
 }

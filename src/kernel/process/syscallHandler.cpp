@@ -99,10 +99,20 @@ uint64_t vmumap_syscall(uint64_t address, uint64_t length)
 uint64_t fopen_syscall(uint64_t filename, uint64_t flags)
 {
     if (!is_user_address(filename, 1)) { return -1; }
+    if ((flags & FILE_CREATE) && (flags & FILE_EXCLUSIVE))
+    {
+        auto existingNode = Filesystem::VirtualFilesystemManager::instance().open_file((char*)filename, 0);
+        if (existingNode)
+        {
+            delete existingNode;
+            return -1;
+        }
+    }
     // With FILE_CREATE, a file that does not exist is created.
     auto vnode = (flags & FILE_CREATE) ? Filesystem::VirtualFilesystemManager::instance().create_file((char*)filename)
                                         : Filesystem::VirtualFilesystemManager::instance().open_file((char*)filename, flags);
-    if (!vnode || !(vnode->flags & Filesystem::VirtualFilesystemNode::VFS_FILE))
+    if (!vnode || !(vnode->flags & Filesystem::VirtualFilesystemNode::VFS_FILE)
+        || ((flags & FILE_TRUNCATE) && !Filesystem::VirtualFilesystemManager::instance().truncate(vnode)))
     {
         if (vnode) { delete vnode; }
         return -1;
@@ -254,14 +264,30 @@ uint64_t exit_syscall(uint64_t exitCode)
     return 0;
 }
 
-// Start a program, with an optional string of arguments separated by spaces.
-uint64_t spawn_syscall(uint64_t path, uint64_t arguments)
+// Start a program, with an optional string of arguments separated by spaces and an optional environment.
+uint64_t spawn_syscall(uint64_t path, uint64_t arguments, uint64_t environment)
 {
-    if (!is_user_address(path, 1) || (arguments && !is_user_address(arguments, 1))) { return -1; }
+    if (!is_user_address(path, 1) || (arguments && !is_user_address(arguments, 1)) || (environment && !is_user_address(environment, 1))) { return -1; }
     auto file = Filesystem::VirtualFilesystemManager::instance().open_file((char*)path, 0);
     if (!file) { return -1; }
     delete file;
-    return Loader::spawn_user_program((char*)path, (char*)arguments);
+    return Loader::spawn_user_program((char*)path, (char*)arguments, (char*)environment);
+}
+
+// Remove a file or an empty directory.
+uint64_t unlink_syscall(uint64_t path)
+{
+    if (!is_user_address(path, 1)) { return -1; }
+    return Filesystem::VirtualFilesystemManager::instance().remove((char*)path) ? 0 : -1;
+}
+
+uint64_t mkdir_syscall(uint64_t path)
+{
+    if (!is_user_address(path, 1)) { return -1; }
+    auto directory = Filesystem::VirtualFilesystemManager::instance().create_directory((char*)path);
+    if (!directory) { return -1; }
+    delete directory;
+    return 0;
 }
 
 uint64_t wait_syscall(uint64_t tid)
@@ -360,7 +386,7 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         case SYSCALL_EXIT:
         return exit_syscall(arg1);
         case SYSCALL_SPAWN:
-        return spawn_syscall(arg1, arg2);
+        return spawn_syscall(arg1, arg2, arg3);
         case SYSCALL_WAIT:
         return wait_syscall(arg1);
         case SYSCALL_BRK:
@@ -382,6 +408,10 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         return CPU::PIT::time_since_boot();
         case SYSCALL_CONSOLE_WRITE:
         return console_write_syscall(arg1, arg2);
+        case SYSCALL_UNLINK:
+        return unlink_syscall(arg1);
+        case SYSCALL_MKDIR:
+        return mkdir_syscall(arg1);
         case 99:
         printf(arg1);
         return 0;

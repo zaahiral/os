@@ -28,10 +28,15 @@
 #define SYSCALL_FSTAT 22
 #define SYSCALL_UPTIME 23
 #define SYSCALL_CONSOLE_WRITE 24
+#define SYSCALL_UNLINK 25
+#define SYSCALL_MKDIR 26
 
 // Flags for SYSCALL_FOPEN.
 #define FILE_CREATE 0x1
 #define FILE_APPEND 0x2
+// With FILE_TRUNCATE, an existing file is emptied, and with FILE_CREATE and FILE_EXCLUSIVE, opening a file that exists fails.
+#define FILE_TRUNCATE 0x4
+#define FILE_EXCLUSIVE 0x8
 
 // Whence values for SYSCALL_LSEEK, which match SEEK_SET, SEEK_CUR and SEEK_END.
 #define SEEK_FROM_START 0

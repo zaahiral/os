@@ -112,12 +112,11 @@ namespace Filesystem
         return node;
     }
 
-    VirtualFilesystemNode* VirtualFilesystemManager::create_file(char* filename)
+    VirtualFilesystemNode* VirtualFilesystemManager::open_parent(char* filename, char* directoryName, char*& name)
     {
-        // Split the path into the directory and the name of the file to create in it.
-        char directoryName[180];
+        // Split the path into the directory and the name of the file in it.
         strcpy(directoryName, filename);
-        char* name = directoryName;
+        name = directoryName;
         for (char* p = directoryName; *p; p++)
         {
             if (*p == '/') { name = p + 1; }
@@ -131,8 +130,45 @@ namespace Filesystem
             if (directory) { delete directory; }
             return nullptr;
         }
+        return directory;
+    }
+
+    VirtualFilesystemNode* VirtualFilesystemManager::create_file(char* filename)
+    {
+        char directoryName[180];
+        char* name;
+        auto directory = open_parent(filename, directoryName, name);
+        if (!directory) { return nullptr; }
         auto file = directory->driver->vfsdriver_create(directory, name);
         delete directory;
         return file;
+    }
+
+    VirtualFilesystemNode* VirtualFilesystemManager::create_directory(char* filename)
+    {
+        char directoryName[180];
+        char* name;
+        auto directory = open_parent(filename, directoryName, name);
+        if (!directory) { return nullptr; }
+        auto newDirectory = directory->driver->vfsdriver_mkdir(directory, name);
+        delete directory;
+        return newDirectory;
+    }
+
+    bool VirtualFilesystemManager::remove(char* filename)
+    {
+        char directoryName[180];
+        char* name;
+        auto directory = open_parent(filename, directoryName, name);
+        if (!directory) { return false; }
+        bool isRemoved = directory->driver->vfsdriver_remove(directory, name);
+        delete directory;
+        return isRemoved;
+    }
+
+    bool VirtualFilesystemManager::truncate(VirtualFilesystemNode* vnode)
+    {
+        if (!vnode) { return false; }
+        return vnode->driver->vfsdriver_truncate(vnode);
     }
 }
