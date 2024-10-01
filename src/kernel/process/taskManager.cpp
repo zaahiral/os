@@ -86,6 +86,7 @@ namespace Task
             CPU::restore_fpu_state(task->m_fpuState);
             m_fpuOwner = task->get_task_id();
         }
+        CPU::set_fs_base(task->get_thread_pointer());
 
         if (task->m_state == Task::TaskState::NOT_STARTED)
         {
@@ -249,7 +250,8 @@ namespace Task
         m_spinlock.acquire();
         auto task = get_current_task_pointer();
         task->m_hasExited = true;
-        task->m_exitCode = exitCode;
+        // Exit codes are 8 bits, as on Unix, so a wait that returns -1 can only mean the task could not be waited for.
+        task->m_exitCode = exitCode & 0xFF;
         // The waiting task is woken while we still hold the spinlock, so it cannot run until this task has blocked.
         // It then frees this task's memory and kernel stack, so this task never runs again.
         if (task->m_waitingTask) { m_scheduler->unblock_task(task->m_waitingTask); }
