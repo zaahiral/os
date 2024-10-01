@@ -20,7 +20,7 @@ void format_number(uint64_t number, char* buffer)
 extern "C" void _start()
 {
     syscall(SYSCALL_DPRINTF, (uint64_t)"Starting initrd/bin/readfile.\n");
-    uint64_t tid = syscall(SYSCALL_SPAWN, (uint64_t)"initrd/bin/readfile");
+    uint64_t tid = syscall(SYSCALL_SPAWN, (uint64_t)"initrd/bin/readfile", 0, 0);
     uint64_t exitCode = syscall(SYSCALL_WAIT, tid);
 
     char number[21];
