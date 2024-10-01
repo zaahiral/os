@@ -74,6 +74,8 @@ namespace Loader
         for (uint8_t* idx = (uint8_t*)(((uint64_t)elfFile)+elfFile->e_shoff); (uint64_t)idx < ((uint64_t)elfFile)+elfFile->e_shoff+elfFile->e_shentsize * elfFile->e_shnum; idx += elfFile->e_shentsize)
         {
             auto sectionHeader = (Elf64_Shdr*)idx;
+            // Uninitialised thread-local variables take up no memory in the program, as each thread gets its own copy.
+            if ((sectionHeader->sh_flags & SHF_TLS) && sectionHeader->sh_type == SHT_NOBITS) { continue; }
             // If the section has a virtual address, we need to load it in.
             if (sectionHeader->sh_addr)
             {
@@ -111,6 +113,34 @@ namespace Loader
             Memory::MemoryManager::instance().alloc_page(request, task->get_tlTable());
         }
         memcpy((void*)0x400000, elfFile, sizeof(Elf64_Ehdr));
+
+        // A program has one thread, so its thread-local variables go after the program, copied from the TLS segment.
+        // On x86-64 they end at the thread pointer, which points to itself, and the linker places each variable at a
+        // negative offset from it, rounded to the segment's alignment.
+        for (uint64_t i = 0; i < elfFile->e_phnum; i++)
+        {
+            auto programHeader = reinterpret_cast<Elf64_Phdr*>(reinterpret_cast<uint64_t>(elfFile) + elfFile->e_phoff + i * elfFile->e_phentsize);
+            if (programHeader->p_type != PT_TLS) { continue; }
+            uint64_t alignment = programHeader->p_align ? programHeader->p_align : 1;
+            uint64_t blockSize = BYTE_ALIGN_UP(programHeader->p_memsz, alignment);
+            uint64_t threadPointer = BYTE_ALIGN_UP(programEnd + blockSize, alignment > 16 ? alignment : 16);
+            uint64_t blockStart = threadPointer - blockSize;
+            for (uint64_t page = BYTE_ALIGN_DOWN(blockStart, Memory::PAGE_4KiB); page < threadPointer + sizeof(uint64_t); page += Memory::PAGE_4KiB)
+            {
+                if (!Memory::MemoryManager::instance().get_physical_address(Memory::VirtualAddress(page), task->get_tlTable()).get())
+                {
+                    auto request = Memory::VirtualMemoryAllocationRequest(Memory::VirtualAddress(page));
+                    request.allowUserAccess = true;
+                    request.allowWrite = true;
+                    Memory::MemoryManager::instance().alloc_page(request, task->get_tlTable());
+                }
+            }
+            memcpy((void*)blockStart, (void*)(reinterpret_cast<uint64_t>(elfFile) + programHeader->p_offset), programHeader->p_filesz);
+            memset((void*)(blockStart + programHeader->p_filesz), 0, blockSize - programHeader->p_filesz);
+            *reinterpret_cast<uint64_t*>(threadPointer) = threadPointer;
+            task->set_thread_pointer(threadPointer);
+            programEnd = threadPointer + sizeof(uint64_t);
+        }
 
         // Allocate the program's stack.
         for (uint8_t* userStackPointer = (uint8_t*)USER_STACK_BASE; userStackPointer < (uint8_t*)(USER_STACK_BASE + USER_STACK_SIZE); userStackPointer += Memory::PAGE_4KiB)
@@ -201,6 +231,8 @@ namespace Loader
 
         // A program that cannot be loaded exits straight away with an error code.
         if (!isLoaded) { Task::TaskManager::instance().exit_task(-1); }
+        // The task is already running, so its thread pointer is set now rather than on its next task switch.
+        CPU::set_fs_base(Task::TaskManager::instance().get_current_task_pointer()->get_thread_pointer());
         start_userspace_task_sysret((uint64_t)entryPoint, stackPointer, argc, argv, envp);
     }
 
@@ -217,6 +249,7 @@ namespace Loader
         argument[length] = '\0';
 
         // Variables that do not fit in the environment are left out.
+        if (!environment) { environment = DEFAULT_ENVIRONMENT; }
         length = 0;
         while (environment && environment[length])
         {

@@ -99,17 +99,8 @@ uint64_t vmumap_syscall(uint64_t address, uint64_t length)
 uint64_t fopen_syscall(uint64_t filename, uint64_t flags)
 {
     if (!is_user_address(filename, 1)) { return -1; }
-    if ((flags & FILE_CREATE) && (flags & FILE_EXCLUSIVE))
-    {
-        auto existingNode = Filesystem::VirtualFilesystemManager::instance().open_file((char*)filename, 0);
-        if (existingNode)
-        {
-            delete existingNode;
-            return -1;
-        }
-    }
     // With FILE_CREATE, a file that does not exist is created.
-    auto vnode = (flags & FILE_CREATE) ? Filesystem::VirtualFilesystemManager::instance().create_file((char*)filename)
+    auto vnode = (flags & FILE_CREATE) ? Filesystem::VirtualFilesystemManager::instance().create_file((char*)filename, flags & FILE_EXCLUSIVE)
                                         : Filesystem::VirtualFilesystemManager::instance().open_file((char*)filename, flags);
     if (!vnode || !(vnode->flags & Filesystem::VirtualFilesystemNode::VFS_FILE)
         || ((flags & FILE_TRUNCATE) && !Filesystem::VirtualFilesystemManager::instance().truncate(vnode)))
@@ -145,7 +136,8 @@ uint64_t fread_syscall(uint64_t fd, uint64_t buf, uint64_t count)
     }
     // Read from the current offset, but not past the end of the file.
     auto length = Filesystem::VirtualFilesystemManager::instance().filelen(entry->last.node);
-    if (entry->last.offset + count > length) { count = length - entry->last.offset; }
+    if (entry->last.offset >= length) { count = 0; }
+    else if (entry->last.offset + count > length) { count = length - entry->last.offset; }
     auto bytesRead = Filesystem::VirtualFilesystemManager::instance().read(entry->last.node, entry->last.offset, count, (void*)buf);
     entry->last.offset += bytesRead;
     Task::TaskManager::instance().unlock();
@@ -196,8 +188,10 @@ uint64_t lseek_syscall(uint64_t fd, uint64_t offset, uint64_t whence)
 
 void fill_file_status(Filesystem::VirtualFilesystemNode* node, FileStatus* status)
 {
-    status->size = Filesystem::VirtualFilesystemManager::instance().filelen(node);
     status->isDirectory = (node->flags & Filesystem::VirtualFilesystemNode::VFS_DIRECTORY) != 0;
+    // Only files have a length, and the initrd's directories have no header to read one from.
+    status->size = status->isDirectory ? 0 : Filesystem::VirtualFilesystemManager::instance().filelen(node);
+    status->inode = node->inodeNum;
 }
 
 uint64_t stat_syscall(uint64_t path, uint64_t buf)
@@ -256,6 +250,27 @@ uint64_t fclose_syscall(uint64_t fd)
     fileDescriptorTable.remove(fd);
     Task::TaskManager::instance().unlock();
     return 0;
+}
+
+// Make a new file descriptor for the same file. Each descriptor keeps its own offset, unlike on Unix, where they share one.
+uint64_t dup_syscall(uint64_t fd)
+{
+    Task::TaskManager::instance().lock();
+    auto& fileDescriptorTable = *Task::TaskManager::instance().get_current_task_pointer()->get_file_descriptor_table();
+    auto entry = fileDescriptorTable.get(fd);
+    if (entry.is_end())
+    {
+        Task::TaskManager::instance().unlock();
+        return -1;
+    }
+    // Closing a file descriptor frees its node, so the new descriptor needs its own copy.
+    Filesystem::taskfd taskFileDescriptor = entry->last;
+    taskFileDescriptor.node = new Filesystem::VirtualFilesystemNode(*entry->last.node);
+    auto newEntry = fileDescriptorTable.insert(taskFileDescriptor);
+    newEntry->last.fd = newEntry->first;
+    auto newFd = newEntry->first;
+    Task::TaskManager::instance().unlock();
+    return newFd;
 }
 
 uint64_t exit_syscall(uint64_t exitCode)
@@ -412,6 +427,8 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         return unlink_syscall(arg1);
         case SYSCALL_MKDIR:
         return mkdir_syscall(arg1);
+        case SYSCALL_DUP:
+        return dup_syscall(arg1);
         case 99:
         printf(arg1);
         return 0;
