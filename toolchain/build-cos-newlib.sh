@@ -1,6 +1,7 @@
 #!/bin/bash
 # Builds newlib for cOS, and libcos, which connects newlib to the cOS system calls, into the toolchain's sysroot.
-# Run build-cos-toolchain.sh first, with the same install prefix.
+# Then builds GCC's own libraries, libgcc and libstdc++, which need the C library's headers.
+# Run build-cos-toolchain.sh first, with the same work directory and install prefix.
 # Usage: build-cos-newlib.sh <work directory> <install prefix> [jobs]
 set -e
 
@@ -40,9 +41,13 @@ rm -rf "$SYSROOT/usr/$TARGET"
 # libcos provides crt0.o, crti.o and crtn.o, which GCC links into every program, and the system call functions.
 mkdir build-libcos
 cd build-libcos
-for source in crt0.c syscalls.c spawn.c crti.S crtn.S; do
+for source in crt0.c syscalls.c spawn.c posix.c crti.S crtn.S; do
     $TARGET-gcc -O2 -g -iquote "$REPO_DIR/include/kernel" -c "$REPO_DIR/userspace/libcos/$source" -o "${source%.*}.o"
 done
 cp crt0.o crti.o crtn.o "$SYSROOT/usr/lib/"
 rm -f "$SYSROOT/usr/lib/libcos.a"
-$TARGET-ar rcs "$SYSROOT/usr/lib/libcos.a" syscalls.o spawn.o
+$TARGET-ar rcs "$SYSROOT/usr/lib/libcos.a" syscalls.o spawn.o posix.o
+cd ..
+
+make -C build-gcc -j"$JOBS" all-target-libgcc all-target-libstdc++-v3
+make -C build-gcc install-target-libgcc install-target-libstdc++-v3

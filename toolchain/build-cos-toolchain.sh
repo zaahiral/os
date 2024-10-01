@@ -33,12 +33,12 @@ make -j"$JOBS"
 make install
 cd ..
 
-# The C library is not built yet, so GCC is configured without its headers, and only the compilers and libgcc are built.
-# --with-newlib tells libgcc that the C library will be newlib, so it does not look for its headers yet.
+# The C library is not built yet, so GCC is configured without its headers, and only the compilers are built.
+# build-cos-newlib.sh builds libgcc and libstdc++ once newlib is installed. --with-newlib tells them the C library is newlib.
 export PATH="$PREFIX/bin:$PATH"
 mkdir build-gcc
 cd build-gcc
 ../gcc-$GCC_VERSION/configure --target=$TARGET --prefix="$PREFIX" --with-sysroot="$PREFIX/sysroot" --without-headers --with-newlib \
     --enable-languages=c,c++ --disable-nls --disable-multilib --disable-shared
-make -j"$JOBS" all-gcc all-target-libgcc
-make install-gcc install-target-libgcc
+make -j"$JOBS" all-gcc
+make install-gcc

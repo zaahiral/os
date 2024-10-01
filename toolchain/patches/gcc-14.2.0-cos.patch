@@ -24,7 +24,7 @@ diff -ruN a/fixincludes/mkfixinc.sh b/fixincludes/mkfixinc.sh
 diff -ruN a/gcc/config/cos.h b/gcc/config/cos.h
 --- a/gcc/config/cos.h	1970-01-01 01:00:00.000000000 +0100
 +++ b/gcc/config/cos.h	2026-10-22 15:31:34.288778803 +0100
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,31 @@
 +/* Target definitions for cOS, an x86-64 operating system written in C++.
 +   Programs are static ELF executables that are linked against newlib. */
 +
@@ -51,6 +51,11 @@ diff -ruN a/gcc/config/cos.h b/gcc/config/cos.h
 +/* cOS has no dynamic linker, so every program is linked statically. */
 +#undef LINK_SPEC
 +#define LINK_SPEC "-static -z max-page-size=4096"
++
++/* Constructors run from .init_array through crtbegin.o, so the driver runs ld itself instead of collect2. collect2
++   also makes temporary files such as ccXXXXXX.cdtor.c, whose names do not fit the 8.3 names of cOS's FAT32 disk. */
++#undef LINKER_NAME
++#define LINKER_NAME "ld"
 diff -ruN a/gcc/config.gcc b/gcc/config.gcc
 --- a/gcc/config.gcc	2024-08-01 09:17:14.000000000 +0100
 +++ b/gcc/config.gcc	2026-10-22 15:31:34.288778803 +0100
@@ -62,7 +67,7 @@ diff -ruN a/gcc/config.gcc b/gcc/config.gcc
 +  gas=yes
 +  gnu_ld=yes
 +  default_use_cxa_atexit=yes
-+  use_gcc_stdint=provide
++  use_gcc_stdint=wrap
 +  ;;
  *-*-fuchsia*)
    native_system_header_dir=/include
