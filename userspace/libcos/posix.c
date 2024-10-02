@@ -81,3 +81,51 @@ char* getcwd(char* buffer, size_t size)
         errno = ERANGE;
         return NULL;
     }
+    strcpy(buffer, "/");
+    return buffer;
+}
+
+char* getwd(char* buffer)
+{
+    return getcwd(buffer, 2);
+}
+
+/* cOS has no links, so a path is made absolute by putting / in front of it, and its . and .. parts are removed.
+   libiberty, which binutils and GCC use, needs realpath to find where a program is. */
+char* realpath(const char* path, char* resolved)
+{
+    struct stat st;
+    if (stat(path, &st) < 0) { return NULL; }
+    char* result = resolved ? resolved : malloc(PATH_MAX);
+    if (!result)
+    {
+        errno = ENOMEM;
+        return NULL;
+    }
+    size_t length = 0;
+    const char* input = path;
+    while (*input)
+    {
+        const char* end = input;
+        while (*end && *end != '/') { end++; }
+        size_t partLength = end - input;
+        if (partLength == 2 && input[0] == '.' && input[1] == '.')
+        {
+            /* Remove the last part, along with the / before it. */
+            while (length && result[length - 1] != '/') { length--; }
+            if (length) { length--; }
+        }
+        else if (partLength && !(partLength == 1 && input[0] == '.'))
+        {
+            if (length + partLength + 2 > PATH_MAX)
+            {
+                if (!resolved) { free(result); }
+                errno = ENAMETOOLONG;
+                return NULL;
+            }
+            result[length++] = '/';
+            memcpy(result + length, input, partLength);
+            length += partLength;
+        }
+        input = *end ? end + 1 : end;
+    }
