@@ -60,8 +60,20 @@ namespace Filesystem
         uint32_t size;
     } __attribute__((packed));
 
+    struct FAT32LongNameEntry
+    {
+        uint8_t ordinal;
+        uint16_t name1[5];
+        uint8_t attributes;
+        uint8_t type;
+        uint8_t checksum;
+        uint16_t name2[6];
+        uint16_t firstCluster;
+        uint16_t name3[2];
+    } __attribute__((packed));
+
     // A driver for FAT32 filesystems on the ATA disk, which supports reading, writing, creating and removing files
-    // and directories with 8.3 names.
+    // and directories with 8.3 names and VFAT long names.
     // A node's inode number is the position of its directory entry on the disk, and the root directory has inode 0.
     class FAT32Driver : VFSDriver
     {
@@ -112,12 +124,18 @@ namespace Filesystem
         uint32_t get_first_cluster(VirtualFilesystemNode* vnode);
         uint32_t get_cluster_at(uint32_t firstCluster, uint64_t index, bool shouldAllocate);
         bool read_slot(uint32_t directoryCluster, uint64_t slot, uint64_t& inode, FAT32DirectoryEntry& entry);
-        bool find_entry(uint32_t directoryCluster, const char* shortName, uint64_t& inode, FAT32DirectoryEntry& entry);
-        bool find_free_slot(uint32_t directoryCluster, uint64_t& inode);
+        bool next_entry(uint32_t directoryCluster, uint64_t& slot, uint64_t& inode, FAT32DirectoryEntry& entry,
+            char* name, uint64_t& firstSlot);
+        bool find_entry(uint32_t directoryCluster, const char* name, uint64_t& inode, FAT32DirectoryEntry& entry,
+            char* entryName = nullptr, uint64_t* firstSlot = nullptr, uint64_t* entrySlot = nullptr);
+        bool find_free_slots(uint32_t directoryCluster, uint64_t count, uint64_t& firstSlot);
+        bool short_name_exists(uint32_t directoryCluster, const char* shortName);
+        bool add_entry(uint32_t directoryCluster, const char* name, uint8_t attributes, uint32_t cluster,
+            uint64_t& inode, FAT32DirectoryEntry& entry);
         bool is_empty_directory(uint32_t directoryCluster);
         void read_entry(uint64_t inode, FAT32DirectoryEntry& entry);
         void write_entry(uint64_t inode, FAT32DirectoryEntry& entry);
-        VirtualFilesystemNode* make_vnode(uint64_t inode, FAT32DirectoryEntry& entry);
+        VirtualFilesystemNode* make_vnode(uint64_t inode, FAT32DirectoryEntry& entry, const char* name = nullptr);
     };
 }
 
