@@ -10,7 +10,8 @@
    The kernel takes the arguments as one string of words separated by spaces, so an argument cannot contain a space. */
 
 #define MAX_COMMAND_LINE_LENGTH 4096
-#define MAX_ENVIRONMENT_LENGTH 1024
+#define MAX_PROGRAM_ARGUMENTS 128
+#define MAX_ENVIRONMENT_LENGTH 4096
 
 extern char** environ;
 
@@ -82,8 +83,9 @@ int posix_spawnattr_getflags(const posix_spawnattr_t* attributes, short* flags)
     return 0;
 }
 
-/* Join the arguments after the program's name into one string, separated by spaces. */
-static int join_arguments(char* const argv[], char* arguments)
+/* Join the arguments after the program's name into one string, separated by spaces. The kernel puts the program's
+   path in front of them, so the path counts towards the limits too. */
+static int join_arguments(const char* path, char* const argv[], char* arguments)
 {
     size_t length = 0;
     arguments[0] = '\0';
@@ -91,7 +93,7 @@ static int join_arguments(char* const argv[], char* arguments)
     {
         size_t argumentLength = strlen(argv[i]);
         if (!argumentLength || strchr(argv[i], ' ')) { return EINVAL; }
-        if (length + argumentLength + 2 > MAX_COMMAND_LINE_LENGTH) { return E2BIG; }
+        if (i >= MAX_PROGRAM_ARGUMENTS || strlen(path) + 1 + length + argumentLength + 2 > MAX_COMMAND_LINE_LENGTH) { return E2BIG; }
         if (length) { arguments[length++] = ' '; }
         memcpy(arguments + length, argv[i], argumentLength + 1);
         length += argumentLength;
@@ -120,7 +122,7 @@ int posix_spawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* 
     if (actions && *actions && (*actions)->hasRedirection) { return ENOTSUP; }
     char arguments[MAX_COMMAND_LINE_LENGTH];
     char environment[MAX_ENVIRONMENT_LENGTH];
-    int error = join_arguments(argv, arguments);
+    int error = join_arguments(path, argv, arguments);
     if (!error) { error = join_environment(envp, environment); }
     if (error) { return error; }
 
@@ -155,16 +157,21 @@ int posix_spawnp(pid_t* pid, const char* file, const posix_spawn_file_actions_t*
     return ENOENT;
 }
 
-/* cOS can only wait for one program at a time, and does not support WNOHANG, so options are not used.
-   A program that was stopped by an exception exits with code -1, which waitpid reports as exit status 255. */
+/* cOS can only wait for one program at a time, and cannot check on a program without waiting for it.
+   A program that was stopped by an exception exits with code 255. */
 pid_t waitpid(pid_t pid, int* status, int options)
 {
-    if (pid <= 0)
+    if (options)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+    long exitCode = pid > 0 ? cos_syscall(SYSCALL_WAIT, pid, 0, 0) : -1;
+    if (exitCode < 0)
     {
         errno = ECHILD;
         return -1;
     }
-    long exitCode = cos_syscall(SYSCALL_WAIT, pid, 0, 0);
-    if (status) { *status = (exitCode & 0xff) << 8; }
+    if (status) { *status = exitCode << 8; }
     return pid;
 }

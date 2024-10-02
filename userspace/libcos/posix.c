@@ -170,3 +170,40 @@ DIR* opendir(const char* path)
         errno = ENAMETOOLONG;
         return NULL;
     }
+    strcpy(directory->dd_path, path);
+    return directory;
+}
+
+/* The kernel reads the entry at the directory's index each time, so the directory is read by its path again. */
+struct dirent* readdir(DIR* directory)
+{
+    long type = cos_syscall(SYSCALL_READDIR, (long)directory->dd_path, directory->dd_index, (long)directory->dd_entry.d_name);
+    /* 0 is the end of the directory, and -1 means the directory has gone. */
+    if (type < 0) { errno = ENOENT; }
+    if (type <= 0) { return NULL; }
+    directory->dd_index++;
+    directory->dd_entry.d_ino = directory->dd_index;
+    directory->dd_entry.d_type = type == 2 ? DT_DIR : DT_REG;
+    return &directory->dd_entry;
+}
+
+int closedir(DIR* directory)
+{
+    free(directory);
+    return 0;
+}
+
+void rewinddir(DIR* directory)
+{
+    directory->dd_index = 0;
+}
+
+long telldir(DIR* directory)
+{
+    return directory->dd_index;
+}
+
+void seekdir(DIR* directory, long index)
+{
+    directory->dd_index = index;
+}
