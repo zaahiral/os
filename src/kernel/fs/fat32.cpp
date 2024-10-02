@@ -12,6 +12,89 @@ namespace Filesystem
         constexpr uint64_t FSINFO_FREE_COUNT_OFFSET = 488;
         constexpr uint64_t FSINFO_NEXT_FREE_OFFSET = 492;
 
+        constexpr uint64_t FAT32_MAX_NAME = 255;
+        constexpr uint64_t FAT32_LONG_NAME_PART = 13;
+
+        uint8_t short_name_checksum(const char* name)
+        {
+            uint8_t checksum = 0;
+            for (int i = 0; i < 11; i++) { checksum = ((checksum & 1) << 7) + (checksum >> 1) + (uint8_t)name[i]; }
+            return checksum;
+        }
+
+        bool is_short_character(char c)
+        {
+            return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                || c == '$' || c == '%' || c == '\'' || c == '-' || c == '_' || c == '@' || c == '~'
+                || c == '`' || c == '!' || c == '(' || c == ')' || c == '{' || c == '}' || c == '^' || c == '#' || c == '&';
+        }
+
+        // VFAT stores UTF-16, while VFS paths use UTF-8 and have room for 255 bytes.
+        bool encode_long_name(const char* name, uint16_t* characters, uint64_t& length)
+        {
+            length = 0;
+            uint64_t position = 0;
+            while (name[position])
+            {
+                uint32_t c = (uint8_t)name[position++];
+                uint32_t minimum = 0;
+                int remaining = 0;
+                if (c >= 0xF0 && c <= 0xF4) { c &= 7; remaining = 3; minimum = 0x10000; }
+                else if (c >= 0xE0 && c <= 0xEF) { c &= 15; remaining = 2; minimum = 0x800; }
+                else if (c >= 0xC2 && c <= 0xDF) { c &= 31; remaining = 1; minimum = 0x80; }
+                else if (c >= 0x80) { return false; }
+                for (int i = 0; i < remaining; i++)
+                {
+                    uint8_t next = name[position++];
+                    if ((next & 0xC0) != 0x80) { return false; }
+                    c = (c << 6) | (next & 63);
+                }
+                if (position > FAT32_MAX_NAME || c < minimum || c > 0x10FFFF || c == 0xFFFF || (c >= 0xD800 && c <= 0xDFFF)) { return false; }
+                if (c < 32 || c == '"' || c == '*' || c == '/' || c == ':' || c == '<' || c == '>' || c == '?' || c == '\\' || c == '|') { return false; }
+                if (c >= 0x10000)
+                {
+                    c -= 0x10000;
+                    characters[length++] = 0xD800 | (c >> 10);
+                    characters[length++] = 0xDC00 | (c & 1023);
+                }
+                else { characters[length++] = c; }
+            }
+            return position && name[position - 1] != '.' && name[position - 1] != ' ';
+        }
+
+        bool decode_long_name(const uint16_t* characters, uint64_t count, char* name)
+        {
+            uint64_t length = 0;
+            bool hasEnd = false;
+            for (uint64_t i = 0; i < count; i++)
+            {
+                uint32_t c = characters[i];
+                if (hasEnd)
+                {
+                    if (c != 0xFFFF) { return false; }
+                    continue;
+                }
+                if (!c) { hasEnd = true; continue; }
+                if (i >= FAT32_MAX_NAME || c == 0xFFFF) { return false; }
+                if (c >= 0xD800 && c <= 0xDBFF)
+                {
+                    if (++i >= count || characters[i] < 0xDC00 || characters[i] > 0xDFFF) { return false; }
+                    c = 0x10000 + ((c - 0xD800) << 10) + characters[i] - 0xDC00;
+                }
+                else if (c >= 0xDC00 && c <= 0xDFFF) { return false; }
+                int bytes = c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+                if (length + bytes > FAT32_MAX_NAME) { return false; }
+                if (bytes == 1) { name[length++] = c; }
+                else
+                {
+                    name[length++] = (bytes == 2 ? 0xC0 : bytes == 3 ? 0xE0 : 0xF0) | (c >> (6 * (bytes - 1)));
+                    for (int j = bytes - 2; j >= 0; j--) { name[length++] = 0x80 | ((c >> (6 * j)) & 63); }
+                }
+            }
+            name[length] = '\0';
+            return length != 0;
+        }
+
         // Convert a name such as notes.txt to the padded 8.3 form "NOTES   TXT", and return false if it does not fit.
         bool to_short_name(const char* name, char* shortName)
         {
