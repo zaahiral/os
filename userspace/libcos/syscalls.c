@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/times.h>
@@ -13,7 +14,9 @@
 void _exit(int code)
 {
     cos_syscall(SYSCALL_EXIT, code, 0, 0);
-    while (1);
+    /* The exit system call only returns on another system, such as when a configure script runs a test program on
+       the machine that builds it, so the program stops there instead of running forever. */
+    __builtin_trap();
 }
 
 int open(const char* path, int flags, ...)
@@ -87,6 +90,7 @@ static int read_keyboard_line(char* buffer, int count)
 
 int read(int fd, void* buffer, int count)
 {
+    if (!count) { return 0; }
     if (fd == 0) { return read_keyboard_line(buffer, count); }
     if (fd < CONSOLE_DESCRIPTORS)
     {
@@ -137,6 +141,10 @@ int lseek(int fd, int offset, int whence)
 
 static void to_stat(struct FileStatus* status, struct stat* st)
 {
+    /* cOS does not keep owners, permissions or times, so they are left as zero. */
+    memset(st, 0, sizeof(*st));
+    st->st_ino = status->inode;
+    st->st_nlink = 1;
     st->st_size = status->size;
     st->st_mode = status->isDirectory ? S_IFDIR : S_IFREG;
     st->st_blksize = 512;
@@ -146,6 +154,7 @@ int fstat(int fd, struct stat* st)
 {
     if (fd < CONSOLE_DESCRIPTORS)
     {
+        memset(st, 0, sizeof(*st));
         st->st_mode = S_IFCHR;
         return 0;
     }
@@ -169,6 +178,25 @@ int stat(const char* path, struct stat* st)
     }
     to_stat(&status, st);
     return 0;
+}
+
+/* The keyboard and the screen are not kernel files, so a copy of their descriptor is the same descriptor. */
+int dup(int fd)
+{
+    if (fd < CONSOLE_DESCRIPTORS) { return fd; }
+    long newFd = cos_syscall(SYSCALL_DUP, fd - CONSOLE_DESCRIPTORS, 0, 0);
+    if (newFd < 0)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    return newFd + CONSOLE_DESCRIPTORS;
+}
+
+/* cOS has no symbolic links, so lstat is the same as stat. */
+int lstat(const char* path, struct stat* st)
+{
+    return stat(path, st);
 }
 
 int isatty(int fd)
@@ -213,7 +241,7 @@ clock_t times(struct tms* buffer)
     return milliseconds;
 }
 
-/* cOS does not have signals, links, fork or exec yet. Programs are started with posix_spawn instead. */
+/* cOS does not have signals, links, pipes, fork or exec yet. Programs are started with posix_spawn instead. */
 int kill(int pid, int signal)
 {
     errno = EINVAL;
@@ -227,6 +255,19 @@ int link(const char* oldPath, const char* newPath)
 }
 
 
+int pipe(int fds[2])
+{
+    errno = ENOSYS;
+    return -1;
+}
+
+/* Standard input and output cannot be redirected yet, so a descriptor cannot replace another. */
+int dup2(int fd, int newFd)
+{
+    errno = ENOSYS;
+    return -1;
+}
+
 int fork(void)
 {
     errno = ENOSYS;
@@ -237,6 +278,25 @@ int execve(const char* path, char* const argv[], char* const envp[])
 {
     errno = ENOSYS;
     return -1;
+}
+
+int execvp(const char* file, char* const argv[])
+{
+    errno = ENOSYS;
+    return -1;
+}
+
+/* The kernel sleeps in milliseconds. */
+unsigned int sleep(unsigned int seconds)
+{
+    cos_syscall(SYSCALL_SLEEP_FOR, seconds * 1000L, 0, 0);
+    return 0;
+}
+
+/* Without signals, an alarm could not interrupt the program, so none is set. */
+unsigned int alarm(unsigned int seconds)
+{
+    return 0;
 }
 
 int wait(int* status)

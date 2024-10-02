@@ -120,7 +120,7 @@ void run_program(const char* name, const char* arguments)
     copy_string(path, hasDirectory ? "" : "initrd/bin/");
     copy_string(path + string_length(path), name);
 
-    uint64_t tid = syscall(SYSCALL_SPAWN, (uint64_t)path, (uint64_t)arguments);
+    uint64_t tid = syscall(SYSCALL_SPAWN, (uint64_t)path, (uint64_t)arguments, 0);
     if (tid == (uint64_t)-1)
     {
         print("No such program: ");

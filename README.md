@@ -46,17 +46,39 @@ This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card
 
 The build also makes `build/disk.img`, a FAT32 disk containing the files in `targets/x86_64/disk`, which the kernel mounts at `disk/`. Files that cOS writes to the disk are kept between runs, and can be read on the host with mtools, for example `mtype -i build/disk.img ::notes.txt`.
 
-`toolchain/build-cos-toolchain.sh` builds a cross compiler for cOS itself, binutils 2.42 and GCC 14.2 for the `x86_64-cos` target, from the patches in `toolchain/patches`. This is the first step towards building GCC to run inside cOS. It needs a Linux machine, and takes about 15 minutes with 16 cores:
+`toolchain/build-cos-toolchain.sh` builds a cross compiler for cOS itself, binutils 2.42 and GCC 14.2 for the `x86_64-cos` target, from the patches in `toolchain/patches`. It needs a Linux machine, and takes about 15 minutes with 16 cores:
 
 ```
 toolchain/build-cos-toolchain.sh <work directory> <install prefix> [jobs]
 ```
 
-`toolchain/build-cos-newlib.sh` then builds the newlib C library into the toolchain's sysroot, along with `libcos` (`userspace/libcos`), which gives newlib the cOS system calls it needs, such as `read`, `write` and `sbrk`. libcos also provides `mkdir`, `unlink`, `posix_spawn` and `waitpid`, and programs receive environment variables from the program that started them. Ordinary C programs, using `printf`, `malloc` and `FILE`, can then be compiled for cOS and copied into `targets/x86_64/initrd/bin`:
+`toolchain/build-cos-newlib.sh` then builds the newlib C library into the toolchain's sysroot, along with `libcos` (`userspace/libcos`), which gives newlib the cOS system calls it needs, such as `read`, `write` and `sbrk`. It also builds libgcc and libstdc++. libcos provides `mkdir`, `unlink`, `posix_spawn` and `waitpid`, and programs receive environment variables from the program that started them. Ordinary C programs, using `printf`, `malloc` and `FILE`, can then be compiled for cOS and copied into `targets/x86_64/initrd/bin`:
 
 ```
 toolchain/build-cos-newlib.sh <work directory> <install prefix> [jobs]
 x86_64-cos-gcc -O2 program.c -o program
+```
+
+`toolchain/build-cos-native.sh` builds GCC, the assembler and the linker to run inside cOS. Run it on Linux after the two scripts above, with the same work directory and install prefix. It puts the compiler, headers and libraries in `<output directory>/initrd`:
+
+```
+toolchain/build-cos-native.sh <work directory> <install prefix> <output directory> [jobs]
+```
+
+Give that output directory to CMake to include the compiler in the initrd. QEMU uses 1GiB of memory:
+
+```
+cmake -B build -DNATIVE_TOOLCHAIN=<output directory>
+cmake --build build
+cmake --build build --target run
+```
+
+The user shell can then compile the example on the disk and run it. Temporary files are written to `/disk`:
+
+```
+$ gcc disk/hello.c -o disk/hello
+$ disk/hello one two
+Hello from a program compiled on cOS, with 3 arguments.
 ```
 
 ## Project Specification
@@ -937,6 +959,14 @@ To test networking, I will use QEMU’s command line to save a dump of network c
    <td>Programs receive their arguments as <code>argc</code> and <code>argv</code>, and can be written against the small C library in <code>userspace/include</code>. This is tested by running <code>ls</code>, <code>cat</code> and <code>wc</code>, which are user-space programs, with arguments, and comparing the output of <code>wc</code> with the host's <code>wc</code>. 
    </td>
    <td>Each program handles all of its arguments, and the counts match the host's <code>wc</code>. 
+   </td>
+  </tr>
+  <tr>
+   <td>4.11
+   </td>
+   <td>GCC can compile a C program inside cOS. This is tested by compiling <code>disk/hello.c</code> with the compiler included through <code>NATIVE_TOOLCHAIN</code>, then running the result with two arguments.
+   </td>
+   <td>The compiler finishes, and the program prints its message with an argument count of 3.
    </td>
   </tr>
 </table>
@@ -1946,8 +1976,8 @@ void elf_task()
     Loader::prepare_elf("initrd/bin/hello", currentTask); 
     auto entryPoint = currentTask->get_entry_point(); 
     Task::TaskManager::instance().unlock(); 
-    // prepare_elf maps a 16KiB user stack at 0x1000000, and the stack grows down from its top.
-    start_userspace_task_sysret((uint64_t)entryPoint, 0x1000000 + Memory::PAGE_4KiB * 4); 
+    // prepare_elf maps the user stack, and the stack grows down from its top.
+    start_userspace_task_sysret((uint64_t)entryPoint, Loader::USER_STACK_BASE + Loader::USER_STACK_SIZE);
 
 } 
 ```
@@ -2283,6 +2313,14 @@ int main(int argc, char** argv)
 
 <p align="center">
 <i>ELF executable source code in <code>userspace/wc.cpp</code> for test 4.10. The C library headers, such as <code>stdio.h</code> with <code>printf</code>, are in <code>userspace/include</code>. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-4.11.png" alt="Screenshot of compiling and running a C program inside cOS for test 4.11.">
+</p>
+
+<p align="center">
+<i>GCC compiling <code>disk/hello.c</code> and the compiled program running with two arguments for test 4.11. </i>
 </p>
 
 <p align="center">
