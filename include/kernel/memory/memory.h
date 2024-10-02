@@ -23,6 +23,8 @@ extern "C" inline void* default_memset(void* str, uint64_t c, uint64_t sz)
 extern "C" inline void* fast_aligned_wordwise_64_memset(void* str, uint64_t c, uint64_t sz)
 {
     uint64_t* p = (uint64_t*)str;
+    uint8_t cp = c & 0xff;
+    uint64_t t = sz&0b111;
     c&=0xff;
     c|= c<<8;
     c|= c<<16;
@@ -30,6 +32,10 @@ extern "C" inline void* fast_aligned_wordwise_64_memset(void* str, uint64_t c, u
     sz>>=3;
     while (sz--)
         *p++ = c;
+    // The bytes after the last whole word are set one at a time.
+    uint8_t* bp = (uint8_t*)p;
+    while (t--)
+        *bp++ = cp;
     return str;
 }
 

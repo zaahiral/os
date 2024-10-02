@@ -31,7 +31,7 @@ mode_t umask(mode_t mask)
 }
 
 /* Files are not shared with other programs and are never closed on exec, so the only flags are the access mode
-   and appending, which is only set when a file is opened. Reads and writes always block. */
+   and appending, which can only be set when a file is opened. Reads and writes always block. */
 int fcntl(int fd, int command, ...)
 {
     struct stat st;
@@ -48,7 +48,7 @@ int fcntl(int fd, int command, ...)
         va_start(arguments, command);
         int flags = va_arg(arguments, int);
         va_end(arguments);
-        if (!(flags & O_NONBLOCK)) { return 0; }
+        if (!(flags & (O_NONBLOCK | O_APPEND))) { return 0; }
     }
     errno = EINVAL;
     return -1;
