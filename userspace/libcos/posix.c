@@ -129,3 +129,44 @@ char* realpath(const char* path, char* resolved)
         }
         input = *end ? end + 1 : end;
     }
+    if (!length) { result[length++] = '/'; }
+    result[length] = '\0';
+    return result;
+}
+
+/* The working directory is always the root, so it can only be changed to the root. */
+int chdir(const char* path)
+{
+    if (!strcmp(path, "/") || !strcmp(path, ".")) { return 0; }
+    errno = ENOSYS;
+    return -1;
+}
+
+/* cOS does not keep the times that a file was accessed and changed, so setting them succeeds if the file exists. */
+int utimes(const char* path, const struct timeval times[2])
+{
+    struct stat st;
+    return stat(path, &st);
+}
+
+DIR* opendir(const char* path)
+{
+    struct stat st;
+    if (stat(path, &st) < 0) { return NULL; }
+    if (!S_ISDIR(st.st_mode))
+    {
+        errno = ENOTDIR;
+        return NULL;
+    }
+    DIR* directory = calloc(1, sizeof(DIR));
+    if (!directory)
+    {
+        errno = ENOMEM;
+        return NULL;
+    }
+    if (strlen(path) >= sizeof(directory->dd_path))
+    {
+        free(directory);
+        errno = ENAMETOOLONG;
+        return NULL;
+    }
