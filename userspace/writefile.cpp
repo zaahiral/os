@@ -1,17 +1,19 @@
-#include "process/syscall.h"
+#include "start.h"
+#include "stdio.h"
 
 // Adds a line to a file on the disk with the file system calls, creating the file if it does not exist.
-extern "C" void _start()
+int main(int argc, char** argv)
 {
+    const char* path = argc > 1 ? argv[1] : "disk/log.txt";
     const char line[] = "Written by a user-space program.\n";
-    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)"disk/log.txt", FILE_CREATE | FILE_APPEND);
+    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)path, FILE_CREATE | FILE_APPEND);
     if (fd == (uint64_t)-1)
     {
-        syscall(SYSCALL_DPRINTF, (uint64_t)"Could not open disk/log.txt.\n");
-        syscall(SYSCALL_EXIT, 1);
+        printf("Could not open %s.\n", path);
+        return 1;
     }
     syscall(SYSCALL_FWRITE, fd, (uint64_t)line, sizeof(line) - 1);
     syscall(SYSCALL_FCLOSE, fd);
-    syscall(SYSCALL_DPRINTF, (uint64_t)"Added a line to disk/log.txt.\n");
-    syscall(SYSCALL_EXIT, 0);
+    printf("Added a line to %s.\n", path);
+    return 0;
 }
