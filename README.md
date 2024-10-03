@@ -1001,6 +1001,14 @@ To test networking, I will use QEMU’s command line to save a dump of network c
    <td>The compiler finishes, and the program prints its message with an argument count of 3.
    </td>
   </tr>
+  <tr>
+   <td>4.12
+   </td>
+   <td>GCC can compile freestanding C++20 and NASM can assemble kernel code inside cOS. This is tested by running <code>g++ @disk/cxx.rsp</code>, running <code>disk/cxx</code>, and assembling <code>src/x86_64/task/task.asm</code> copied to <code>disk/task.asm</code> with <code>nasm -f elf64 disk/task.asm -o disk/task.o</code>.
+   </td>
+   <td>The C++ program prints its message, and NASM produces an ELF64 relocatable object matching the host assembler's output.
+   </td>
+  </tr>
 </table>
 
 
@@ -2386,6 +2394,14 @@ int main(int argc, char** argv)
 
 <p align="center">
 <i>GCC compiling <code>disk/hello.c</code> and the compiled program running with two arguments for test 4.11. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-4.12.png" alt="Screenshot of compiling and running C++ and assembling kernel code inside cOS for test 4.12.">
+</p>
+
+<p align="center">
+<i>GCC compiling the freestanding C++20 example and NASM assembling the kernel's task code for test 4.12. </i>
 </p>
 
 <p align="center">
