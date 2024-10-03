@@ -1,0 +1,4 @@
+-std=c++20 -O2 -ffreestanding -nostdlib -static -fno-pie
+-mno-red-zone -mno-sse -fno-exceptions -fno-rtti
+-Wl,-Ttext=0x400100 -Wl,-e,_start
+disk/cxx.cpp -o disk/cxx

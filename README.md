@@ -59,7 +59,7 @@ toolchain/build-cos-newlib.sh <work directory> <install prefix> [jobs]
 x86_64-cos-gcc -O2 program.c -o program
 ```
 
-`toolchain/build-cos-native.sh` builds GCC, the assembler and the linker to run inside cOS. Run it on Linux after the two scripts above, with the same work directory and install prefix. It puts the compiler, headers and libraries in `<output directory>/initrd`:
+`toolchain/build-cos-native.sh` builds GCC with C and C++ support, GNU binutils and NASM 3.02 to run inside cOS. The C++ install includes freestanding libstdc++ headers and `libsupc++`, without the hosted C++ library. Run it on Linux after the two scripts above, with the same work directory and install prefix. It puts the compiler, headers and libraries in `<output directory>/initrd`:
 
 ```
 toolchain/build-cos-native.sh <work directory> <install prefix> <output directory> [jobs]
@@ -79,6 +79,24 @@ The user shell can then compile the example on the disk and run it. Temporary fi
 $ gcc disk/hello.c -o disk/hello
 $ disk/hello one two
 Hello from a program compiled on cOS, with 3 arguments.
+```
+
+The disk also has a freestanding C++20 example. Its response file supplies the same freestanding and linking options as the user-space programs:
+
+```
+$ g++ @disk/cxx.rsp
+$ disk/cxx
+Hello from C++ compiled on cOS!
+```
+
+NASM can assemble the kernel's assembly sources. Copy a source onto the disk on the host, then assemble it in cOS:
+
+```
+mcopy -o -i build/disk.img src/x86_64/task/task.asm ::task.asm
+```
+
+```
+$ nasm -f elf64 disk/task.asm -o disk/task.o
 ```
 
 ## Project Specification
