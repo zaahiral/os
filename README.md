@@ -44,7 +44,7 @@ cmake --build build --target run
 
 This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card. Files placed in `targets/x86_64/initrd` are packed into the initial ramdisk, and the kernel opens them by their path in the ramdisk, such as `initrd/hello.txt`. User-space programs in `userspace` are compiled into `initrd/bin`, and cOS boots into the user shell, `initrd/bin/sh`.
 
-The build also makes `build/disk.img`, a FAT32 disk containing the files in `targets/x86_64/disk`, which the kernel mounts at `disk/`. Files that cOS writes to the disk are kept between runs, and can be read on the host with mtools, for example `mtype -i build/disk.img ::notes.txt`.
+The build also makes `build/disk.img`, a FAT32 disk containing the files in `targets/x86_64/disk`, which the kernel mounts at `disk/`. Files that cOS writes to the disk are kept between runs, and can be read on the host with mtools, for example `mtype -i build/disk.img ::notes.txt`. The FAT32 driver supports VFAT long names, including names such as `taskManager.cpp`, and matches ASCII letters without regard to case. Long names keep their case and use UTF-8 in VFS paths and UTF-16 on disk. Files with 8.3 names keep the existing lower-case display. The VFS still limits whole paths to 179 bytes.
 
 `toolchain/build-cos-toolchain.sh` builds a cross compiler for cOS itself, binutils 2.42 and GCC 14.2 for the `x86_64-cos` target, from the patches in `toolchain/patches`. It needs a Linux machine, and takes about 15 minutes with 16 cores:
 
@@ -440,6 +440,12 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    <td>The driver is responsible for converting the flat, sequential storage of files into a node-based tree of files and directories so that the Virtual Filesystem can interpret them. This is done dynamically as the Virtual Filesystem calls for file operations. 
    </td>
   </tr>
+  <tr>
+   <td><strong>FAT32 driver</strong>
+   </td>
+   <td>Reads, writes, creates and removes files and directories on the ATA disk. VFAT long name entries are checked against their short name checksum, and new long names receive unique 8.3 aliases. Removing a file also removes its long name entries. Directory operations hold the driver lock, and file access caches the last cluster reached in a chain.
+   </td>
+  </tr>
 </table>
 
 ### Networking layer
@@ -786,6 +792,14 @@ I will also test that the kernel manages hardware resources properly. This inclu
    <td>Writing files to a FAT32 disk. This is tested by writing to files from the shell and from a user-space program, restarting the computer, and reading the files again, both in cOS and on the host. 
    </td>
    <td>The written lines are read back after restarting, and the host reads the same contents. 
+   </td>
+  </tr>
+  <tr>
+   <td>2.9
+   </td>
+   <td>VFAT long names work in both cOS and mtools. This is tested by reading a file copied from the host, creating files with long names from the shell and a user-space program, and reading them again after restarting.
+   </td>
+   <td>Names keep their case when listed, case-insensitive lookup reads the files, and mtools shows the same names and contents.
    </td>
   </tr>
 </table>
@@ -1439,28 +1453,61 @@ Written by a user-space program.
 </p>
 
 ```cpp
-#include "process/syscall.h"
+#include "start.h"
+#include "stdio.h"
 
 // Adds a line to a file on the disk with the file system calls, creating the file if it does not exist.
-extern "C" void _start()
+int main(int argc, char** argv)
 {
+    const char* path = argc > 1 ? argv[1] : "disk/log.txt";
     const char line[] = "Written by a user-space program.\n";
-    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)"disk/log.txt", FILE_CREATE | FILE_APPEND);
+    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)path, FILE_CREATE | FILE_APPEND);
     if (fd == (uint64_t)-1)
     {
-        syscall(SYSCALL_DPRINTF, (uint64_t)"Could not open disk/log.txt.\n");
-        syscall(SYSCALL_EXIT, 1);
+        printf("Could not open %s.\n", path);
+        return 1;
     }
     syscall(SYSCALL_FWRITE, fd, (uint64_t)line, sizeof(line) - 1);
     syscall(SYSCALL_FCLOSE, fd);
-    syscall(SYSCALL_DPRINTF, (uint64_t)"Added a line to disk/log.txt.\n");
-    syscall(SYSCALL_EXIT, 0);
+    printf("Added a line to %s.\n", path);
+    return 0;
 }
 ```
 
 <p align="center">
 <i>ELF executable source code in <code>userspace/writefile.cpp</code> for test 2.8. </i>
 </p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-2.9.png" alt="Screenshot of reading and writing long file names for test 2.9.">
+</p>
+
+<p align="center">
+<i>Reading a host-created file, preserving case in the listing, and looking up a long name in upper case for test 2.9.</i>
+</p>
+
+```
+$ printf 'Created on the Mac.\n' > HostSourceFile.cpp
+$ mcopy -i build/disk.img HostSourceFile.cpp ::
+```
+
+After booting cOS, the shell commands are:
+
+```
+$ cat disk/HostSourceFile.cpp
+$ write disk/taskManager.cpp hello long name
+$ writefile disk/syscallHandler.cpp
+$ ls disk
+$ cat disk/TASKMANAGER.CPP
+```
+
+The same files can be read again after restarting, and on the host:
+
+```
+$ mtype -i build/disk.img ::taskManager.cpp ::syscallHandler.cpp
+hello long name
+Written by a user-space program.
+```
 
 ```
 1   0.000000 6e:65:74:77:6f:72 → 48:65:6c:6c:6f:20 0x6b21 14 Ethernet II
