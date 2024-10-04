@@ -46,6 +46,15 @@ This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card
 
 The build also makes `build/disk.img`, a FAT32 disk containing the files in `targets/x86_64/disk`, which the kernel mounts at `disk/`. Files that cOS writes to the disk are kept between runs, and can be read on the host with mtools, for example `mtype -i build/disk.img ::notes.txt`. The FAT32 driver supports VFAT long names, including names such as `taskManager.cpp`, and matches ASCII letters without regard to case. Long names keep their case and use UTF-8 in VFS paths and UTF-16 on disk. Files with 8.3 names keep the existing lower-case display. The VFS still limits whole paths to 179 bytes.
 
+The custom UEFI bootloader is built separately with the GNU cross-compiler and binutils, without a UEFI library:
+
+```
+cmake --build build --target uefi
+cmake --build build --target run-uefi
+```
+
+This makes `build/cOS-uefi.img`, a 128MiB FAT image with `EFI/BOOT/BOOTX64.EFI`, `kernel.bin` and `initrd.tar`. The run target boots it with OVMF and keeps `disk.img` as the data disk. CMake finds Homebrew QEMU's firmware automatically. On other systems, set `OVMF_FIRMWARE` and `OVMF_VARIABLES` to a matching OVMF code image and variables template. The variables template is copied into the build directory before use. The loader requires a 32-bit RGB or BGR GOP framebuffer of at least 640 by 400 pixels below 4GiB. The `gui` demo still requires VGA text mode and is unavailable with the GOP console. GRUB remains the default boot path.
+
 `toolchain/build-cos-toolchain.sh` builds a cross compiler for cOS itself, binutils 2.42 and GCC 14.2 for the `x86_64-cos` target, from the patches in `toolchain/patches`. It needs a Linux machine, and takes about 15 minutes with 16 cores:
 
 ```
@@ -262,6 +271,12 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    <td>Multiboot 
    </td>
    <td>Parses the Multiboot 2 header and allows the kernel to iterate through relevant Multiboot 2 tags with a custom class. 
+   </td>
+  </tr>
+  <tr>
+   <td>UEFI loader
+   </td>
+   <td>Loads the kernel ELF segments at their physical addresses and reads the initrd from the boot volume. It converts the firmware memory map and GOP framebuffer into Multiboot 2 tags, reserves loader allocations, and exits boot services with the final memory map key. The optional EFI64 entry builds temporary page tables and joins the existing kernel startup. The console draws text into GOP memory when a framebuffer tag is present.
    </td>
   </tr>
   <tr>
@@ -732,6 +747,14 @@ It is the operating system’s responsibility to properly initialise the process
    <td>A page fault occurs. 
    </td>
   </tr>
+  <tr>
+   <td>1.10
+   </td>
+   <td>Boot the UEFI image with OVMF, then run <code>ls initrd</code> and <code>cat initrd/hello.txt</code> in the user shell. Repeat the shell check with the GRUB ISO.
+   </td>
+   <td>Both boot paths reach the shell, list the initrd and print its greeting without processor exceptions.
+   </td>
+  </tr>
 </table>
 
 ### Kernel Resource Management
@@ -1085,6 +1108,14 @@ The shell and the cScript interpreter are tested by typing commands into the she
 
 
 ### Evidence
+
+<p align="center">
+<img width="700" src="docs/evidence/test-1.10.png" alt="Screenshot of the UEFI booted shell listing the initrd and printing its greeting for test 1.10.">
+</p>
+
+<p align="center">
+<i>Screenshot of the user shell after booting the custom UEFI loader under OVMF for test 1.10. The same commands also passed with the GRUB ISO.</i>
+</p>
 
 
 <p align="center">
@@ -2531,7 +2562,7 @@ I have a few ideas on potential improvements to this project from my own reflect
 
 - **Improving system calls and porting a C library**: The system calls act as an interface between the user-space and the kernel, where the user-space can request services. Increasing the number of system calls means that user-space programs can provide more functionality. For example, a common system call is the mmap call which is used to map memory. With enough system calls, a C library can be ported that abstracts the system calls, leaving user-space programs to use the standardised C library.
 
-- **Custom bootloader**: At the moment, we use the GRUB bootloader to load the operating system and Multiboot-2 modules into memory. However this restricts the design of how the kernel boots and makes us reliant on the bootloader. With a custom bootloader, we would have complete control over how our operating system is loaded and we could write a custom installer for our operating system.
+- **Custom installer**: The UEFI bootloader can load cOS without GRUB. An installer could prepare an EFI system partition and copy the loader, kernel and initrd onto it.
 
 
 ## Resources

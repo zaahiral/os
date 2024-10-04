@@ -306,6 +306,11 @@ namespace Shell
 
     void KernelShell::gui_command()
     {
+        if (has_framebuffer_console())
+        {
+            printf("The graphics demo requires a VGA text console.\n");
+            return;
+        }
         if (!Drivers::BochsVBEDriver::instance().is_present())
         {
             printf("The display adapter does not support the Bochs VBE extensions.\n");
