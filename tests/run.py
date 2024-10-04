@@ -256,3 +256,48 @@ def boot_test(suite):
         guest.expect('cOS user shell')
         guest.expect('$ ')
 
+
+def memory_test(suite):
+    with suite.boot('1.2', 't1.2.cpp') as guest:
+        screen = guest.expect('MEMORY DETECTED:')
+        regions = [(int(length), int(base)) for length, base in
+                   re.findall(r'MEMORY DETECTED: (\d+) bytes at (\d+)', screen)]
+        require(len(regions) >= 2, 'Missing usable memory regions')
+        require(any(base == 0 for length, base in regions), 'Missing low memory')
+        end = max(base + length for length, base in regions)
+        require(1024 ** 3 - 1024 ** 2 <= end <= 1024 ** 3, 'Memory does not match QEMU 1GiB')
+
+
+def physical_test(suite):
+    with suite.boot('1.3', 't1.3.cpp') as guest:
+        screen = guest.expect('Contents of 0x1000:')
+        value = int(re.search(r'Contents of 0x1000: (\d+)', screen)[1])
+        dump = guest.command('xp /1bx 0x1000')
+        physical = re.search(r'0*1000:\s+0x([0-9a-fA-F]+)', dump)
+        require(physical and value == int(physical[1], 16), 'Virtual and physical bytes differ')
+
+
+def table_test(suite, name, register, minimum):
+    with suite.boot(name) as guest:
+        guest.expect('$ ')
+        registers = guest.command('info registers')
+        match = re.search(register + r'=\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)', registers)
+        require(match and int(match[1], 16) >= 0xffff800000000000 and int(match[2], 16) >= minimum,
+                'Invalid ' + register + ' register')
+        if register == 'GDT':
+            require(re.search(r'TR\s*=.*TSS64', registers), 'Missing 64-bit TSS')
+
+
+def allocation_test(suite):
+    with suite.boot('1.5-unmapped', 't1.5a.cpp', expected={14: 1}) as guest:
+        guest.expect('PAGE FAULT4096')
+    with suite.boot('1.5-mapped', 't1.5b.cpp') as guest:
+        guest.wait(lambda text: re.search(r'Value of virtual address 0x1000: \d+', text), 'mapped byte')
+
+
+def pic_test(suite):
+    with suite.boot('1.7') as guest:
+        guest.expect('$ ')
+        pic = guest.command('info pic')
+        require(re.search(r'pic0:.*irq_base=20', pic) and re.search(r'pic1:.*irq_base=28', pic), 'PIC offsets differ')
+
