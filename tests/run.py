@@ -165,3 +165,47 @@ class Guest:
         (self.directory / 'monitor.txt').write_text('\n'.join(self.transcript))
         (self.directory / 'screens.txt').write_text('\n\n---\n\n'.join(self.screens))
 
+    def check_vectors(self):
+        log = (self.directory / 'qemu.log').read_text(errors='replace')
+        vectors = Counter(int(v, 16) for v in re.findall(r'\bv=([0-9a-fA-F]{2})\b', log))
+        (self.directory / 'vectors.json').write_text(json.dumps({f'{v:02x}': n for v, n in sorted(vectors.items())}, indent=2) + '\n')
+        exceptions = {v: n for v, n in vectors.items() if v < 32}
+        require(exceptions == self.expected,
+                'Exception vectors: expected ' + repr(self.expected) + ', got ' + repr(exceptions))
+        require('Triple fault' not in log, 'Triple fault')
+
+
+class Suite:
+    def __init__(self, args):
+        self.output = args.output.resolve()
+        require(self.output != ROOT and self.output not in ROOT.parents,
+                'Output must not replace the repository')
+        self.output.mkdir(parents=True, exist_ok=True)
+        self.source = self.output / 'source'
+        self.build = self.output / 'build'
+        self.native = args.native_toolchain.resolve() if args.native_toolchain else None
+        self.qemu = args.qemu
+        self.port = args.port
+        self.jobs = args.jobs
+        self.timeoutScale = args.timeout_scale
+        self.variant = None
+        require(self.source != ROOT and self.source not in ROOT.parents, 'Unsafe output directory')
+        marker = self.output / '.cos-tests'
+        if self.source.exists():
+            require(marker.exists(), 'Output contains an unrelated source directory: ' + str(self.source))
+            shutil.rmtree(self.source)
+        marker.touch()
+        self.source.mkdir()
+        for name in ('src', 'include', 'userspace', 'targets', 'toolchain'):
+            shutil.copytree(ROOT / name, self.source / name)
+        shutil.copy2(ROOT / 'CMakeLists.txt', self.source / 'CMakeLists.txt')
+        for program in (ROOT / 'tests/programs').glob('*.cpp'):
+            shutil.copy2(program, self.source / 'userspace' / program.name)
+        initrd = self.source / 'targets/x86_64/initrd'
+        (initrd / 'dir').mkdir()
+        (initrd / 'afile.txt').write_text('Hello from a test file.\n')
+        (initrd / 'dir/afile.txt').write_text('Hello from a test directory.\n')
+        self.kernel = (self.source / 'src/kernel/kernel.cpp').read_text()
+        self.build_command(['cmake', '-S', str(self.source), '-B', str(self.build)] +
+                           (['-DNATIVE_TOOLCHAIN=' + str(self.native)] if self.native else ['-DNATIVE_TOOLCHAIN=']))
+
