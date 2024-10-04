@@ -25,3 +25,23 @@ def read_pcap(path):
         offset += length
     return frames
 
+
+def checksum(data):
+    if len(data) % 2:
+        data += b"\0"
+    total = sum(struct.unpack("!" + "H" * (len(data) // 2), data))
+    while total >> 16:
+        total = (total & 0xffff) + (total >> 16)
+    return (~total) & 0xffff
+
+
+def arp_exchange(frames):
+    packets = [f[14:42] for f in frames if len(f) >= 42 and f[12:14] == b"\x08\x06"]
+    request = [p for p in packets if p[:8] == bytes.fromhex("0001080006040001")
+               and p[14:18] == bytes([10, 0, 2, 15]) and p[24:28] == bytes([10, 0, 2, 2])]
+    reply = [p for p in packets if p[:8] == bytes.fromhex("0001080006040002")
+             and p[14:18] == bytes([10, 0, 2, 2]) and p[24:28] == bytes([10, 0, 2, 15])]
+    require(request and reply, "Missing ARP gateway request/reply")
+    require(request[0][8:14] == reply[0][18:24], "ARP reply has wrong destination MAC")
+    return reply[0][8:14]
+
