@@ -392,3 +392,67 @@ def tcp_server(port):
         except OSError as error:
             errors.append(str(error))
 
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield received
+        thread.join(timeout=25)
+        require(not thread.is_alive() and not errors, 'TCP server failed: ' + repr(errors))
+    finally:
+        server.close()
+
+
+def network_test(suite, number):
+    name = '3.' + str(number)
+    with tcp_server(1234 if number == 7 else 3939) if number in (7, 8) else null_server() as received:
+        with suite.boot(name, 'net-' + name + '.cpp', udp=number == 6) as guest:
+            guest.expect('Network test ready.')
+            if number == 6:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+                    sender.sendto(b'Hello from the host!', ('127.0.0.1', guest.udpPort))
+                guest.expect('Hello from the host!')
+            if number in (7, 8):
+                deadline = time.monotonic() + 20 * suite.timeoutScale
+                while not received and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                require(received, 'Host did not receive TCP data')
+        frames = read_pcap(suite.output / name / 'network.pcap')
+        payload = b'Hello network!'
+        if number == 1:
+            require(frames == [payload], 'Raw transmission differs: ' + repr(frames))
+        elif number == 2:
+            require(len(frames) == 1 and frames[0][:6] == b'\xff' * 6
+                    and frames[0][6:12] == bytes.fromhex('525400123456')
+                    and frames[0][12:] == b'\0\0' + payload, 'Ethernet frame differs')
+        elif number == 3:
+            mac = arp_exchange(frames)
+            guestScreen = '\n'.join(guest.screens)
+            require('MAC address (big endian): ' + str(int.from_bytes(mac, 'little')) in guestScreen,
+                    'Cached MAC differs from ARP reply')
+        elif number in (4, 5):
+            arp_exchange(frames)
+            packets = ipv4_packets(frames, 0 if number == 4 else 17)
+            if number == 4:
+                require(any(data == payload for _, data in packets), 'IPv4 payload differs')
+            else:
+                udp = next(data for ip, data in packets if ip[12:16] == bytes([10, 0, 2, 15]))
+                source, dest, length, check = struct.unpack('!HHHH', udp[:8])
+                require(source > 0 and dest == 1234 and length == len(udp) and udp[8:] == payload,
+                        'UDP header/payload differs')
+                pseudo = bytes([10, 0, 2, 15, 10, 0, 2, 2, 0, 17]) + struct.pack('!H', length)
+                require(check == 0 or checksum(pseudo + udp) == 0, 'Invalid UDP checksum')
+        elif number == 6:
+            require(any(data[8:] == b'Hello from the host!' for _, data in ipv4_packets(frames, 17)),
+                    'Incoming UDP payload differs')
+        else:
+            packets = tcp_packets(frames)
+            sent = b''.join(data for _, _, data in packets)
+            require(received[0] in sent, 'Capture does not contain the TCP data received by host')
+            if number == 7:
+                require(received == [payload], 'TCP payload differs')
+            else:
+                headers, body = received[0].split(b'\n\n', 1)
+                require(headers.startswith(b'POST /d493159e-39a2-4015-a5b7-cfcc05a9d739 HTTP/1.1\n')
+                        and b'Host: localhost\n' in headers + b'\n'
+                        and b'Content-Length: 15' in headers and body == b'{"test":"data"}', 'HTTP POST differs')
+
