@@ -70,3 +70,49 @@ class Guest:
             self.close()
             raise
 
+    def _response(self):
+        data = b''
+        while not data.endswith(b'(qemu) '):
+            block = self.monitor.recv(65536)
+            require(block, 'QEMU monitor disconnected')
+            data += block
+        return data.decode(errors='replace')
+
+    def command(self, command):
+        self.monitor.sendall((command + '\n').encode())
+        result = self._response().split('\r\n', 1)[-1].replace('\r', '')
+        self.transcript.append(command + '\n' + result)
+        return result
+
+    def screen(self):
+        dump = self.command('xp /4000bx 0xb8000')
+        values = []
+        for line in dump.splitlines():
+            match = re.match(r'^[0-9a-fA-F]+:\s+(.*)', line.strip())
+            if match:
+                values.extend(int(value, 16) for value in re.findall(r'0x([0-9a-fA-F]{2})\b', match[1]))
+        require(len(values) == 4000, 'Could not read the VGA text buffer')
+        chars = bytes(values[::2]).decode('cp437').replace('\x00', ' ')
+        screen = '\n'.join(chars[i:i + 80].rstrip() for i in range(0, 2000, 80)).rstrip()
+        if not self.screens or self.screens[-1] != screen:
+            self.screens.append(screen)
+        return screen
+
+    def wait(self, predicate, description, timeout=20):
+        deadline = time.monotonic() + timeout * self.suite.timeoutScale
+        while True:
+            screen = self.screen()
+            if predicate(screen):
+                return screen
+            require(self.process.poll() is None, 'QEMU exited while waiting for ' + description)
+            if time.monotonic() >= deadline:
+                raise AssertionError('Timed out waiting for ' + description + '\n' + screen)
+            time.sleep(0.1)
+
+    def expect(self, text, timeout=20):
+        return self.wait(lambda screen: text.rstrip() in screen, repr(text), timeout)
+
+    def key(self, name):
+        self.command('sendkey ' + name + ' 1')
+        time.sleep(0.025 * self.suite.timeoutScale)
+
