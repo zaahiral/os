@@ -3,7 +3,9 @@
 
 #include "types.h"
 
-// Prints to the VGA text buffer.
+// Uses the boot framebuffer when available, or the VGA text buffer otherwise.
+void initialise_console();
+bool has_framebuffer_console();
 void clear_screen();
 void printf(const char* str);
 void printf(uint64_t num);

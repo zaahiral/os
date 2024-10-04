@@ -50,6 +50,7 @@
 #define MULTIBOOT_TAG_TYPE_BASIC_MEMINFO     4
 #define MULTIBOOT_TAG_TYPE_BOOTDEV           5
 #define MULTIBOOT_TAG_TYPE_MMAP              6
+#define MULTIBOOT_TAG_TYPE_FRAMEBUFFER       8
 
 #define MULTIBOOT_ARCHITECTURE_I386  0
 
@@ -127,6 +128,22 @@ struct multiboot_tag_mmap
   multiboot_uint32_t entry_version;
   struct multiboot_mmap_entry entries[0];
 };
+
+struct multiboot_tag_framebuffer
+{
+  multiboot_uint32_t type;
+  multiboot_uint32_t size;
+  multiboot_uint64_t address;
+  multiboot_uint32_t pitch;
+  multiboot_uint32_t width;
+  multiboot_uint32_t height;
+  multiboot_uint8_t bpp;
+  multiboot_uint8_t framebufferType;
+  multiboot_uint16_t reserved;
+  multiboot_uint8_t redPosition, redSize;
+  multiboot_uint8_t greenPosition, greenSize;
+  multiboot_uint8_t bluePosition, blueSize;
+} __attribute__((packed));
 
 #endif /*  ! ASM_FILE */
 

@@ -78,6 +78,61 @@ add_custom_command(OUTPUT cOS.iso
     DEPENDS kernel.bin initrd.tar ${CMAKE_CURRENT_SOURCE_DIR}/targets/x86_64/iso/boot/grub/grub.cfg)
 add_custom_target(iso ALL DEPENDS cOS.iso)
 
+# The UEFI loader is a freestanding PE application, built with the same GNU cross-toolchain.
+find_program(UEFI_OBJCOPY NAMES x86_64-elf-objcopy REQUIRED)
+find_program(MMD mmd REQUIRED)
+add_custom_command(OUTPUT BOOTX64.EFI
+    COMMAND ${CMAKE_CXX_COMPILER} -std=c11 -O2 -Wall -Wextra -Werror -ffreestanding -fpie
+        -fshort-wchar -mabi=ms -mno-red-zone -mno-sse -mno-sse2 -fno-stack-protector
+        -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-ident
+        -I${CMAKE_CURRENT_SOURCE_DIR}/include/kernel
+        -c ${CMAKE_CURRENT_SOURCE_DIR}/boot/uefi/main.c -o uefi.o
+    COMMAND ${UEFI_OBJCOPY} --remove-section=.comment uefi.o
+    COMMAND ${CMAKE_LINKER} -mi386pep --subsystem 10 --entry efi_main --image-base 0x10000000
+        --enable-reloc-section --no-insert-timestamp -o BOOTX64.EFI uefi.o
+    DEPENDS boot/uefi/main.c boot/uefi/efi.h include/kernel/multiboot2.h)
+add_custom_command(OUTPUT cOS-uefi.img
+    COMMAND ${CMAKE_COMMAND} -E rm -f cOS-uefi.img
+    COMMAND ${MFORMAT} -i cOS-uefi.img -C -F -T 262144 -h 64 -s 32 ::
+    COMMAND ${MMD} -i cOS-uefi.img ::/EFI ::/EFI/BOOT
+    COMMAND ${MCOPY} -i cOS-uefi.img BOOTX64.EFI ::/EFI/BOOT/BOOTX64.EFI
+    COMMAND ${MCOPY} -i cOS-uefi.img $<TARGET_FILE:kernel.bin> ::/kernel.bin
+    COMMAND ${MCOPY} -i cOS-uefi.img initrd.tar ::/initrd.tar
+    DEPENDS BOOTX64.EFI kernel.bin initrd.tar)
+add_custom_target(uefi DEPENDS cOS-uefi.img)
+
+find_file(OVMF_FIRMWARE NAMES edk2-x86_64-code.fd OVMF_CODE.fd OVMF_CODE_4M.fd
+    PATHS /opt/homebrew/share/qemu /usr/local/share/qemu /usr/share/qemu
+        /usr/share/OVMF /usr/share/edk2/ovmf
+    DOC "OVMF x86-64 firmware for the run-uefi target")
+get_filename_component(OVMF_DIRECTORY "${OVMF_FIRMWARE}" DIRECTORY)
+get_filename_component(OVMF_FILENAME "${OVMF_FIRMWARE}" NAME)
+if(OVMF_FILENAME STREQUAL "OVMF_CODE_4M.fd")
+    set(OVMF_VARIABLE_NAMES OVMF_VARS_4M.fd)
+elseif(OVMF_FILENAME STREQUAL "edk2-x86_64-code.fd")
+    # QEMU distributes a shared variables template for its i386 and x86-64 firmware.
+    set(OVMF_VARIABLE_NAMES edk2-i386-vars.fd edk2-x86_64-vars.fd)
+else()
+    set(OVMF_VARIABLE_NAMES OVMF_VARS.fd)
+endif()
+find_file(OVMF_VARIABLES NAMES ${OVMF_VARIABLE_NAMES}
+    HINTS ${OVMF_DIRECTORY}
+    DOC "OVMF variables template matching OVMF_FIRMWARE")
+if(OVMF_FIRMWARE AND OVMF_VARIABLES)
+    add_custom_command(OUTPUT uefi-vars.fd
+        COMMAND ${CMAKE_COMMAND} -E copy ${OVMF_VARIABLES} uefi-vars.fd
+        DEPENDS ${OVMF_VARIABLES})
+    add_custom_target(uefi-vars DEPENDS uefi-vars.fd)
+    add_custom_target(run-uefi
+        COMMAND qemu-system-x86_64 -m 1G -nic user,model=pcnet
+            -drive if=pflash,format=raw,readonly=on,file=${OVMF_FIRMWARE}
+            -drive if=pflash,format=raw,file=uefi-vars.fd
+            -drive file=disk.img,format=raw,if=ide,index=0,media=disk
+            -drive file=cOS-uefi.img,format=raw,if=ide,index=1,media=disk
+        DEPENDS uefi disk uefi-vars
+        USES_TERMINAL)
+endif()
+
 # QEMU with the network card the kernel has a driver for (AMD PCnet-PCI II), and the disk as the primary master.
 # The disk is not bootable, so QEMU is told to boot from the CD.
 add_custom_target(run
