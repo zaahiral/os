@@ -301,3 +301,47 @@ def pic_test(suite):
         pic = guest.command('info pic')
         require(re.search(r'pic0:.*irq_base=20', pic) and re.search(r'pic1:.*irq_base=28', pic), 'PIC offsets differ')
 
+
+def keyboard_test(suite):
+    with suite.boot('1.8') as guest:
+        guest.shell()
+        guest.type('keyboard check', enter=False)
+        guest.expect('$ keyboard check')
+    log = (suite.output / '1.8/qemu.log').read_text()
+    require(re.search(r'v=21\b', log), 'No keyboard interrupt')
+
+
+def fault_test(suite):
+    with suite.boot('1.9', 't1.9.cpp', expected={14: 1}) as guest:
+        guest.expect('PAGE FAULT4321')
+
+
+def snippet_test(suite, name, snippet, expected):
+    with suite.boot(name, snippet) as guest:
+        guest.expect(expected)
+
+
+def pci_test(suite):
+    with suite.boot('2.3') as guest:
+        guest.kernel_shell()
+        screen = guest.run('pci', 'Vendor:Device')
+        kernel = Counter(re.findall(r'\b([0-9A-F]{4}):([0-9A-F]{4})\b', screen))
+        monitor = Counter((v.upper(), d.upper()) for v, d in
+                          re.findall(r'PCI device ([0-9a-fA-F]{4}):([0-9a-fA-F]{4})', guest.command('info pci')))
+        require(kernel and kernel == monitor, 'PCI devices differ: ' + repr(kernel) + ' vs ' + repr(monitor))
+
+
+def events_test(suite):
+    with suite.boot('2.6', 't2.6.cpp') as guest:
+        guest.expect('Keyboard listener ready.')
+        guest.key('a')
+        guest.expect('Scan code received: 30')
+        guest.expect('Scan code received: 158')
+
+
+def disk_read_test(suite):
+    with suite.boot('2.7') as guest:
+        guest.shell()
+        guest.run('ls disk', 'readme.txt')
+        guest.run('cat disk/readme.txt', (ROOT / 'targets/x86_64/disk/readme.txt').read_text().strip())
+
