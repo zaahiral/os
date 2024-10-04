@@ -456,3 +456,49 @@ def network_test(suite, number):
                         and b'Host: localhost\n' in headers + b'\n'
                         and b'Content-Length: 15' in headers and body == b'{"test":"data"}', 'HTTP POST differs')
 
+
+@contextmanager
+def null_server():
+    yield None
+
+
+def tasks_test(suite, number):
+    with suite.boot('4.' + str(number), 't4.' + str(number) + '.cpp') as guest:
+        screen = guest.wait(lambda text: all('Task ' + n in text for n in ('one', 'two', 'three', 'four')), 'four tasks')
+        if number == 2:
+            require(re.findall(r'Task (\w+)', screen) == ['three', 'two', 'four', 'one'], 'Tasks ran out of priority order')
+        if number == 3:
+            before = (guest.directory / 'qemu.log').stat().st_size
+            guest.key('a')
+            time.sleep(0.5 * suite.timeoutScale)
+            log = (guest.directory / 'qemu.log').read_text()[before:]
+            require('v=20' in log and 'v=21' in log, 'Blocked tasks stopped hardware interrupts')
+
+
+def privileged_test(suite):
+    with suite.boot('4.5', expected={13: 1}) as guest:
+        guest.shell()
+        guest.run('privileged', 'The program was stopped by exception 13.')
+        guest.run('echo still running', '\nstill running\n$')
+        require('The privileged instruction returned.' not in '\n'.join(guest.screens), 'cli returned in user space')
+    log = (suite.output / '4.5/qemu.log').read_text()
+    require(re.search(r'v=0d .*cpl=3', log), 'GP fault did not originate in ring 3')
+
+
+def sleep_test(suite):
+    with suite.boot('4.6', 'boot.cpp') as guest:
+        guest.expect('Task one.')
+        samples = []
+        deadline = time.monotonic() + 4.5 * suite.timeoutScale
+        last = 0
+        while time.monotonic() < deadline:
+            count = guest.screen().count('Task one.')
+            if count != last:
+                samples.append((time.monotonic(), count))
+                last = count
+            time.sleep(0.05)
+        intervals = [right[0] - left[0] for left, right in zip(samples, samples[1:])]
+        (guest.directory / 'timing.json').write_text(json.dumps(intervals) + '\n')
+        require(len(intervals) >= 3 and all(0.6 <= interval <= 1.6 * suite.timeoutScale for interval in intervals),
+                'sleep_for did not print roughly once per second: ' + repr(intervals))
+
