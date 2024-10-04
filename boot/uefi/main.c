@@ -84,3 +84,74 @@ static void* read_file(EfiFile* root, uint16_t* path, uint64_t* fileSize)
     file->close(file);
     return data;
 }
+
+static uint64_t load_kernel(void* file, uint64_t fileSize)
+{
+    ElfHeader* header = file;
+    if (fileSize < sizeof(*header) || header->ident[0] != 0x7F || header->ident[1] != 'E'
+        || header->ident[2] != 'L' || header->ident[3] != 'F' || header->ident[4] != 2
+        || header->ident[5] != 1 || header->type != 2 || header->machine != 62
+        || header->programSize != sizeof(ElfProgram) || !header->programCount
+        || header->programOffset > fileSize
+        || header->programCount > (fileSize - header->programOffset) / sizeof(ElfProgram))
+        fail((uint16_t*)L"Invalid kernel ELF header.");
+
+    ElfProgram* programs = (ElfProgram*)((uint8_t*)file + header->programOffset);
+    uint64_t loadStart = 0xFFFFFFFF, loadEnd = 0;
+    for (uint16_t i = 0; i < header->programCount; i++)
+    {
+        ElfProgram* program = &programs[i];
+        if (program->type != 1 || !program->memorySize) { continue; }
+        if (program->offset > fileSize || program->fileSize > fileSize - program->offset
+            || program->memorySize < program->fileSize || program->physicalAddress < 0x100000
+            || program->physicalAddress >= 0x40000000
+            || program->memorySize > 0x40000000 - program->physicalAddress
+            || program->virtualAddress != 0xFFFFFF8000000000ULL + program->physicalAddress)
+            fail((uint16_t*)L"Invalid kernel ELF segment.");
+        if (program->physicalAddress < loadStart) { loadStart = program->physicalAddress; }
+        if (program->physicalAddress + program->memorySize > loadEnd)
+            loadEnd = program->physicalAddress + program->memorySize;
+    }
+    loadStart &= ~4095ULL;
+    loadEnd = (loadEnd + 4095) & ~4095ULL;
+    if (loadEnd <= loadStart
+        || bootServices->allocatePages(2, EFI_LOADER_CODE, (loadEnd - loadStart) / 4096, &loadStart))
+        fail((uint16_t*)L"Unable to reserve the kernel load address.");
+    zero_bytes((void*)loadStart, loadEnd - loadStart);
+    for (uint16_t i = 0; i < header->programCount; i++)
+    {
+        ElfProgram* program = &programs[i];
+        if (program->type == 1 && program->memorySize)
+            copy_bytes((void*)program->physicalAddress, (uint8_t*)file + program->offset, program->fileSize);
+    }
+
+    // The optional Multiboot2 EFI64 entry is physical, unlike the ELF's protected-mode entry.
+    uint64_t searchEnd = fileSize < MULTIBOOT_SEARCH ? fileSize : MULTIBOOT_SEARCH;
+    for (uint64_t offset = 0; offset + sizeof(struct multiboot_header) <= searchEnd; offset += 8)
+    {
+        struct multiboot_header* bootHeader = (void*)((uint8_t*)file + offset);
+        if (bootHeader->magic != MULTIBOOT2_HEADER_MAGIC || bootHeader->architecture != 0
+            || (uint32_t)(bootHeader->magic + bootHeader->architecture + bootHeader->header_length + bootHeader->checksum))
+            continue;
+        if (bootHeader->header_length < 24 || bootHeader->header_length > searchEnd - offset) { break; }
+        uint64_t end = offset + bootHeader->header_length;
+        for (uint64_t tagOffset = offset + 16; tagOffset + 8 <= end;)
+        {
+            uint16_t* tag = (void*)((uint8_t*)file + tagOffset);
+            uint32_t size = ((uint32_t*)tag)[1];
+            if (size < 8 || size > end - tagOffset || !tag[0]) { break; }
+            if (tag[0] == 9 && size == 12)
+            {
+                uint64_t entry = ((uint32_t*)tag)[2];
+                for (uint16_t i = 0; i < header->programCount; i++)
+                {
+                    ElfProgram* program = &programs[i];
+                    if (program->type == 1 && (program->flags & 1) && entry >= program->physicalAddress
+                        && entry - program->physicalAddress < program->fileSize)
+                        return entry;
+                }
+                fail((uint16_t*)L"Invalid EFI64 entry address.");
+            }
+            tagOffset += (size + 7ULL) & ~7ULL;
+        }
+    }
