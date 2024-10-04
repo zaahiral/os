@@ -209,3 +209,50 @@ class Suite:
         self.build_command(['cmake', '-S', str(self.source), '-B', str(self.build)] +
                            (['-DNATIVE_TOOLCHAIN=' + str(self.native)] if self.native else ['-DNATIVE_TOOLCHAIN=']))
 
+    def build_command(self, command):
+        with (self.output / 'build.log').open('a') as log:
+            log.write('\n' + ' '.join(command) + '\n')
+            log.flush()
+            result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
+        require(result.returncode == 0, 'Build failed. See ' + str(self.output / 'build.log'))
+
+    def build_variant(self, snippet=None):
+        if self.variant == (snippet or 'shell'):
+            return
+        kernel = self.kernel
+        if snippet:
+            globalsText, body = (ROOT / 'tests/snippets' / snippet).read_text().split('//@body')
+            globalsText = globalsText.replace('//@globals', '').strip()
+            start = kernel.index('    auto shellTask = Task::TaskManager::instance().create_new_kernel_task();')
+            end = kernel.index('    Task::TaskManager::instance().run();\n', start) + len('    Task::TaskManager::instance().run();\n')
+            kernel = kernel[:start] + '    clear_screen();\n' + body.strip('\n') + '\n' + kernel[end:]
+            if 'void task_one()' in globalsText:
+                start = kernel.index('void task_one()')
+                end = kernel.index('\n}\n', start) + 3
+                kernel = kernel[:start] + kernel[end:]
+            start = kernel.index('extern "C" void pre_kernel(')
+            kernel = kernel[:start] + globalsText + '\n\n' + kernel[start:]
+        (self.source / 'src/kernel/kernel.cpp').write_text(kernel)
+        self.build_command(['cmake', '--build', str(self.build), '-j' + str(self.jobs)])
+        self.variant = snippet or 'shell'
+
+    @contextmanager
+    def boot(self, name, snippet=None, **kwargs):
+        self.build_variant(snippet)
+        guest = Guest(self, name, **kwargs)
+        try:
+            yield guest
+        finally:
+            try:
+                guest.screen()
+                guest.screenshot()
+            finally:
+                guest.close()
+            guest.check_vectors()
+
+
+def boot_test(suite):
+    with suite.boot('1.1') as guest:
+        guest.expect('cOS user shell')
+        guest.expect('$ ')
+
