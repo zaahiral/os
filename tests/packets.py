@@ -64,3 +64,19 @@ def ipv4_packets(frames, protocol):
     require(packets, "No IPv4 packet for protocol " + str(protocol))
     return packets
 
+
+def tcp_packets(frames):
+    packets = []
+    for ip, tcp in ipv4_packets(frames, 6):
+        require(len(tcp) >= 20, "Short TCP header")
+        headerLength = (tcp[12] >> 4) * 4
+        require(20 <= headerLength <= len(tcp), "Invalid TCP data offset")
+        pseudo = ip[12:20] + b"\0\x06" + struct.pack("!H", len(tcp))
+        require(checksum(pseudo + tcp) == 0, "Invalid TCP checksum")
+        packets.append((tcp[13], struct.unpack_from("!II", tcp, 4), tcp[headerLength:]))
+    syn = next((seq for flags, seq, _ in packets if flags & 0x12 == 0x02), None)
+    synAck = next((seq for flags, seq, _ in packets if flags & 0x12 == 0x12), None)
+    require(syn is not None and synAck is not None and synAck[1] == syn[0] + 1, "Missing TCP SYN/SYN-ACK")
+    require(any(flags & 0x10 and seq == (syn[0] + 1, synAck[0] + 1)
+                for flags, seq, _ in packets), "Missing TCP handshake ACK")
+    return packets
