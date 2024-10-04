@@ -116,3 +116,52 @@ class Guest:
         self.command('sendkey ' + name + ' 1')
         time.sleep(0.025 * self.suite.timeoutScale)
 
+    def type(self, text, enter=True):
+        for character in text:
+            name = 'shift-' + character.lower() if character.isupper() else KEYS.get(character, character)
+            self.key(name)
+        if enter:
+            self.key('ret')
+
+    def shell(self):
+        self.expect('$ ')
+        self.type('clear')
+        self.wait(lambda screen: screen.strip() == '$', 'a cleared user shell')
+
+    def kernel_shell(self):
+        self.shell()
+        self.type('exit')
+        self.expect('cOS> ')
+        self.type('clear')
+        self.wait(lambda screen: screen.strip() == 'cOS>', 'a cleared kernel shell')
+
+    def run(self, command, expected, timeout=20):
+        before = self.screen()
+        self.type(command)
+        return self.wait(lambda screen: screen != before and expected.rstrip() in screen
+                         and (command == 'run initrd/scripts/countdown.cs'
+                              or screen.endswith('$') or screen.endswith('cOS>')),
+                         repr(expected) + ' after ' + command, timeout)
+
+    def screenshot(self, name='screen'):
+        path = self.directory / (name + '.ppm')
+        result = self.command('screendump "' + str(path) + '"')
+        require(path.exists(), 'Screenshot failed: ' + result)
+        return path
+
+    def close(self):
+        if self.process is not None:
+            if self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
+            self.stderr.close()
+        if self.monitor is not None:
+            self.monitor.close()
+            self.monitor = None
+        (self.directory / 'monitor.txt').write_text('\n'.join(self.transcript))
+        (self.directory / 'screens.txt').write_text('\n\n---\n\n'.join(self.screens))
+
