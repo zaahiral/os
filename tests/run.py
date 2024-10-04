@@ -345,3 +345,50 @@ def disk_read_test(suite):
         guest.run('ls disk', 'readme.txt')
         guest.run('cat disk/readme.txt', (ROOT / 'targets/x86_64/disk/readme.txt').read_text().strip())
 
+
+def disk_write_test(suite):
+    with suite.boot('2.8-write') as guest:
+        guest.shell()
+        guest.run('write disk/notes.txt hello from the shell', '$ ')
+        guest.run('writefile', 'Added a line to disk/log.txt.')
+        guest.run('cat disk/notes.txt', 'hello from the shell')
+        disk = guest.disk
+    with suite.boot('2.8-reboot', disk=disk) as guest:
+        guest.shell()
+        guest.run('cat disk/notes.txt', 'hello from the shell')
+        guest.run('cat disk/log.txt', 'Written by a user-space program.')
+    for name, expected in [('notes.txt', b'hello from the shell\n'),
+                           ('log.txt', b'Written by a user-space program.\n')]:
+        data = subprocess.check_output(['mtype', '-i', str(disk), '::' + name])
+        require(data == expected, 'Host disk contents differ for ' + name + ': ' + repr(data))
+
+
+@contextmanager
+def tcp_server(port):
+    server = socket.socket()
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(('127.0.0.1', port))
+    server.listen(1)
+    server.settimeout(45)
+    received = []
+    errors = []
+
+    def serve():
+        try:
+            connection, _ = server.accept()
+            with connection:
+                connection.settimeout(20)
+                data = b''
+                while True:
+                    block = connection.recv(4096)
+                    if not block:
+                        break
+                    data += block
+                    if data == b'Hello network!' or b'{"test":"data"}' in data:
+                        break
+                received.append(data)
+                # Keep the endpoint open until the guest has captured its final ACK.
+                time.sleep(1)
+        except OSError as error:
+            errors.append(str(error))
+
