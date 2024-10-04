@@ -45,3 +45,22 @@ def arp_exchange(frames):
     require(request[0][8:14] == reply[0][18:24], "ARP reply has wrong destination MAC")
     return reply[0][8:14]
 
+
+def ipv4_packets(frames, protocol):
+    packets = []
+    for frame in frames:
+        if len(frame) < 34 or frame[12:14] != b"\x08\x00":
+            continue
+        packet = frame[14:]
+        if packet[9] != protocol:
+            continue
+        length = struct.unpack_from("!H", packet, 2)[0]
+        headerLength = (packet[0] & 15) * 4
+        require(packet[0] >> 4 == 4 and 20 <= headerLength <= length <= len(packet), "Invalid IPv4 length/version")
+        require(checksum(packet[:headerLength]) == 0, "Invalid IPv4 checksum")
+        require(packet[12:20] in (bytes([10, 0, 2, 15, 10, 0, 2, 2]),
+                                bytes([10, 0, 2, 2, 10, 0, 2, 15])), "Wrong IPv4 endpoints")
+        packets.append((packet[:headerLength], packet[headerLength:length]))
+    require(packets, "No IPv4 packet for protocol " + str(protocol))
+    return packets
+
