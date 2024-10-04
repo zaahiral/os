@@ -155,3 +155,81 @@ static uint64_t load_kernel(void* file, uint64_t fileSize)
             tagOffset += (size + 7ULL) & ~7ULL;
         }
     }
+    fail((uint16_t*)L"The kernel has no EFI64 entry.");
+    return 0;
+}
+
+static EfiGraphics* setup_graphics(void)
+{
+    EfiGraphics* graphics;
+    if (bootServices->locateProtocol(&graphicsGuid, NULL, (void**)&graphics))
+        fail((uint16_t*)L"No graphics output protocol.");
+    for (uint32_t i = 0; i < graphics->mode->maxMode; i++)
+    {
+        uint64_t infoSize;
+        EfiGraphicsInfo* info;
+        if (graphics->queryMode(graphics, i, &infoSize, &info)) { continue; }
+        int preferred = info->width == 800 && info->height == 600 && info->format <= 1;
+        bootServices->freePool(info);
+        if (preferred && !graphics->setMode(graphics, i)) { break; }
+    }
+    EfiGraphicsInfo* info = graphics->mode->info;
+    if (info->format > 1 || info->width < 640 || info->height < 400
+        || info->pixelsPerLine < info->width || info->pixelsPerLine > 16384 || info->height > 16384
+        || graphics->mode->framebuffer >= 0x100000000ULL
+        || graphics->mode->framebufferSize > 0x100000000ULL - graphics->mode->framebuffer
+        || (uint64_t)info->pixelsPerLine * info->height * 4 > graphics->mode->framebufferSize)
+        fail((uint16_t*)L"The console requires a 32-bit RGB or BGR framebuffer below 4GiB.");
+    return graphics;
+}
+
+EfiStatus EFIAPI efi_main(EfiHandle image, EfiSystemTable* table)
+{
+    systemTable = table;
+    bootServices = table->bootServices;
+    bootServices->setWatchdogTimer(0, 0, 0, NULL);
+    print((uint16_t*)L"cOS UEFI bootloader\r\n");
+    EfiLoadedImage* loadedImage;
+    EfiFilesystem* filesystem;
+    EfiFile* root;
+    if (bootServices->handleProtocol(image, &loadedImageGuid, (void**)&loadedImage)
+        || bootServices->handleProtocol(loadedImage->device, &filesystemGuid, (void**)&filesystem)
+        || filesystem->openVolume(filesystem, &root))
+        fail((uint16_t*)L"Unable to open the boot volume.");
+    uint64_t kernelSize, initrdSize;
+    void* kernel = read_file(root, (uint16_t*)L"\\kernel.bin", &kernelSize);
+    uint64_t entry = load_kernel(kernel, kernelSize);
+    bootServices->freePages((uint64_t)kernel, (kernelSize + 4095) / 4096);
+    uint64_t initrd = (uint64_t)read_file(root, (uint16_t*)L"\\initrd.tar", &initrdSize);
+    root->close(root);
+    EfiGraphics* graphics = setup_graphics();
+
+    uint64_t mapSize = 0, mapKey, descriptorSize;
+    uint32_t descriptorVersion;
+    if (bootServices->getMemoryMap(&mapSize, NULL, &mapKey, &descriptorSize, &descriptorVersion) != EFI_BUFFER_TOO_SMALL)
+        fail((uint16_t*)L"Unable to size the memory map.");
+    uint64_t mapCapacity = mapSize + 4096;
+    void* map = (void*)allocate_pages(mapCapacity);
+    uint64_t infoCapacity = mapCapacity + 4096;
+    uint8_t* info = (void*)allocate_pages(infoCapacity);
+
+    struct multiboot_tag_module* module = (void*)(info + 8);
+    module->type = MULTIBOOT_TAG_TYPE_MODULE;
+    module->size = 16 + sizeof("initrd");
+    module->mod_start = initrd;
+    module->mod_end = initrd + ((initrdSize + 4095) & ~4095ULL);
+    copy_bytes(module->cmdline, "initrd", sizeof("initrd"));
+    struct multiboot_tag_framebuffer* framebuffer = (void*)(info + 32);
+    framebuffer->type = MULTIBOOT_TAG_TYPE_FRAMEBUFFER;
+    framebuffer->size = sizeof(*framebuffer);
+    framebuffer->address = graphics->mode->framebuffer;
+    framebuffer->pitch = graphics->mode->info->pixelsPerLine * 4;
+    framebuffer->width = graphics->mode->info->width;
+    framebuffer->height = graphics->mode->info->height;
+    framebuffer->bpp = 32;
+    framebuffer->framebufferType = 1;
+    framebuffer->redPosition = graphics->mode->info->format == 0 ? 0 : 16;
+    framebuffer->greenPosition = 8;
+    framebuffer->bluePosition = graphics->mode->info->format == 0 ? 16 : 0;
+    framebuffer->redSize = framebuffer->greenSize = framebuffer->blueSize = 8;
+
