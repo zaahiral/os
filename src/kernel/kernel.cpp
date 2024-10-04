@@ -78,9 +78,10 @@ void network_task()
 extern "C" void pre_kernel(const Multiboot::multiboot_info* multibootStructure, const uint64_t gdtp,
                             const uint64_t gdt, const uint64_t tss)
 {
+    Multiboot::MultibootManager::instance().set_structure((Multiboot::multiboot_info*)(Memory::VirtualAddress(Memory::PhysicalAddress((Multiboot::multiboot_info*)multibootStructure))).get());
+    initialise_console();
     clear_screen();
     printf("cOS v1.0.0b - COPYRIGHT Zaahir Ali 2024\n");
-    Multiboot::MultibootManager::instance().set_structure((Multiboot::multiboot_info*)(Memory::VirtualAddress(Memory::PhysicalAddress((Multiboot::multiboot_info*)multibootStructure))).get());
     printf("---------- MEMORY MAP ----------------------------------------------------------");
     Memory::MemoryManager::instance().protect_physical_regions(Memory::VirtualAddress(reinterpret_cast<uint64_t>(&end_of_kernel_image)).get_low_physical());
     Modules::protect_pages();

@@ -107,7 +107,7 @@ namespace Memory {
         deinit_physical_region(memoryBitmapPageStart, m_physicalMemorySize - memoryBitmapPageStart);
         deinit_physical_region(PhysicalAddress(static_cast<uint64_t>(0)), reinterpret_cast<uint64_t>(kernelEnd.get()));
         auto multibootStructure = Multiboot::MultibootManager::instance().get_structure();
-        deinit_physical_region(reinterpret_cast<uint64_t>(multibootStructure), multibootStructure->total_size);
+        deinit_physical_region(VirtualAddress(multibootStructure).get_low_physical(), multibootStructure->total_size);
     }
 
     void GenericEntry::set_access_flags(VirtualMemoryMapRequest request)

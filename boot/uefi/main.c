@@ -233,3 +233,44 @@ EfiStatus EFIAPI efi_main(EfiHandle image, EfiSystemTable* table)
     framebuffer->bluePosition = graphics->mode->info->format == 0 ? 16 : 0;
     framebuffer->redSize = framebuffer->greenSize = framebuffer->blueSize = 8;
 
+    print((uint16_t*)L"Kernel and initrd loaded. Leaving firmware.\r\n");
+    for (uint32_t attempt = 0; attempt < 3; attempt++)
+    {
+        mapSize = mapCapacity;
+        if (bootServices->getMemoryMap(&mapSize, map, &mapKey, &descriptorSize, &descriptorVersion)
+            || descriptorSize < sizeof(EfiMemoryDescriptor) || mapSize % descriptorSize) { break; }
+        struct multiboot_tag_mmap* mmap = (void*)(info + 72);
+        mmap->type = MULTIBOOT_TAG_TYPE_MMAP;
+        mmap->entry_size = sizeof(struct multiboot_mmap_entry);
+        mmap->entry_version = 0;
+        uint64_t count = mapSize / descriptorSize;
+        mmap->size = 16 + count * mmap->entry_size;
+        if (72 + mmap->size + 8 > infoCapacity) { break; }
+        for (uint64_t i = 0; i < count; i++)
+        {
+            EfiMemoryDescriptor* descriptor = (void*)((uint8_t*)map + i * descriptorSize);
+            struct multiboot_mmap_entry* region = &mmap->entries[i];
+            region->addr = descriptor->physical;
+            region->len = descriptor->pages * 4096;
+            // Boot-services memory is reusable after ExitBootServices. Loader allocations remain reserved.
+            region->type = descriptor->type == 7 || descriptor->type == 3 || descriptor->type == 4 ? 1 : 2;
+            if (descriptor->type == 9) { region->type = 3; }
+            if (descriptor->type == 10) { region->type = 4; }
+            if (descriptor->type == 8) { region->type = 5; }
+        }
+        uint32_t totalSize = 72 + mmap->size + 8;
+        struct multiboot_tag* end = (void*)(info + totalSize - 8);
+        end->type = MULTIBOOT_TAG_TYPE_END;
+        end->size = 8;
+        ((uint32_t*)info)[0] = totalSize;
+        EfiStatus status = bootServices->exitBootServices(image, mapKey);
+        if (!status)
+        {
+            __asm__ volatile ("cli; cld; jmp *%0" : : "r"(entry), "b"((uint32_t)(uint64_t)info), "a"(MULTIBOOT2_BOOTLOADER_MAGIC) : "memory");
+            __builtin_unreachable();
+        }
+        // A failed exit may already have stopped firmware devices. Only memory-map and exit calls are retried.
+        if (status != EFI_INVALID_PARAMETER) { break; }
+    }
+    for (;;) { __asm__ volatile ("cli; hlt"); }
+}
