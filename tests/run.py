@@ -502,3 +502,55 @@ def sleep_test(suite):
         require(len(intervals) >= 3 and all(0.6 <= interval <= 1.6 * suite.timeoutScale for interval in intervals),
                 'sleep_for did not print roughly once per second: ' + repr(intervals))
 
+
+def reclaim_test(suite):
+    with suite.boot('4.8') as guest:
+        guest.shell()
+        guest.run('hello', 'Hello from userspace!')
+        guest.run('launch', 'readfile exited with code 27.')
+        guest.run('readfile', 'Exited with code 27.')
+        guest.type('exit')
+        guest.expect('cOS> ')
+        guest.run('exec memtest', '0 corrupt blocks.')
+        screen = guest.run('mem', 'Free memory:')
+        before = int(re.findall(r'Free memory: (\d+) KiB', screen)[-1])
+        samples = [before]
+        for _ in range(10):
+            guest.type('clear')
+            guest.wait(lambda text: text.strip() == 'cOS>', 'a cleared kernel shell')
+            guest.run('exec memtest', 'Exited with code 0.')
+            screen = guest.run('mem', 'Free memory:')
+            samples.append(int(re.findall(r'Free memory: (\d+) KiB', screen)[-1]))
+        after = samples[-1]
+        (guest.directory / 'memory.json').write_text(json.dumps({'beforeKiB': before, 'afterKiB': after, 'samplesKiB': samples}) + '\n')
+        # The kernel heap retains its backing pages, so allow four pages of allocator growth.
+        require(before - after <= 16, 'Memory fell after ten runs: ' + str(before - after) + ' KiB')
+
+
+def userspace_memory_test(suite):
+    with suite.boot('4.9', expected={14: 1}) as guest:
+        guest.shell()
+        guest.run('memtest', 'Allocated 100 blocks, reused 50 freed blocks, and found 0 corrupt blocks.')
+        guest.expect('with 0 non-zero words, and unmapped it.')
+        guest.run('crash', 'The program was stopped by a page fault at address 16.')
+        guest.run('echo still running', '\nstill running\n$')
+        require('This line is never printed.' not in '\n'.join(guest.screens), 'Faulting process continued')
+
+
+def arguments_test(suite):
+    with suite.boot('4.10') as guest:
+        guest.shell()
+        guest.run('ls initrd/scripts disk', 'readme.txt')
+        guest.expect('fibonacci.cs')
+        guest.run('cat initrd/hello.txt disk/readme.txt', 'This file is on the FAT32 disk.')
+        guest.expect('Hello from the cOS initrd!')
+        paths = ['initrd/hello.txt', 'disk/readme.txt', 'initrd/scripts/fibonacci.cs']
+        counts = []
+        for path in paths:
+            data = (ROOT / 'targets/x86_64' / path).read_bytes()
+            counts.append((data.count(b'\n'), len(data.split()), len(data)))
+        counts.append(tuple(sum(row[i] for row in counts) for i in range(3)))
+        screen = guest.run('wc ' + ' '.join(paths), ' total')
+        actual = [tuple(map(int, values)) for values in re.findall(r'^\s*(\d+)\s+(\d+)\s+(\d+) ', screen, re.M)]
+        require(actual == counts, 'wc counts differ: ' + repr(actual) + ' vs ' + repr(counts))
+
