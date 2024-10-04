@@ -139,3 +139,13 @@ add_custom_target(run
     COMMAND qemu-system-x86_64 -cdrom cOS.iso -m 1G -nic user,model=pcnet -drive file=disk.img,format=raw,if=ide,index=0,media=disk -boot d
     DEPENDS iso disk
     USES_TERMINAL)
+
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+set(CHECK_ARGUMENTS --output ${CMAKE_CURRENT_BINARY_DIR}/check)
+if(NATIVE_TOOLCHAIN)
+    list(APPEND CHECK_ARGUMENTS --native-toolchain ${NATIVE_TOOLCHAIN})
+endif()
+add_custom_target(check
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.py ${CHECK_ARGUMENTS}
+    USES_TERMINAL
+    VERBATIM)
