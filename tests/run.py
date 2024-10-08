@@ -615,3 +615,87 @@ def script_test(suite, number):
             guest.run('echo stopped', '\nstopped\ncOS>')
             require('Lift off!' not in '\n'.join(guest.screens), 'Countdown was not interrupted')
 
+
+def restart_shell_test(suite):
+    with suite.boot('5.7') as guest:
+        guest.shell()
+        screen = guest.run('ls initrd/bin', 'sh')
+        require(re.search(r'^sh\s*$', screen, re.M), 'sh is not listed')
+        guest.run('exit', 'This is the kernel shell.')
+        guest.run('exec sh', 'cOS user shell')
+        guest.run('echo restarted', '\nrestarted\n$')
+
+
+def cases():
+    return [
+        ('1.1', boot_test), ('1.2', memory_test), ('1.3', physical_test),
+        ('1.4', lambda s: table_test(s, '1.4', 'GDT', 0x37)), ('1.5', allocation_test),
+        ('1.6', lambda s: table_test(s, '1.6', 'IDT', 0xfff)), ('1.7', pic_test),
+        ('1.8', keyboard_test), ('1.9', fault_test),
+        ('2.1', lambda s: snippet_test(s, '2.1', 't2.1.cpp', 'Allocation was not overwritten.')),
+        ('2.2', lambda s: snippet_test(s, '2.2', 't2.2.cpp', 'Allocated 8192 bytes.')),
+        ('2.3', pci_test),
+        ('2.4', lambda s: snippet_test(s, '2.4', 't2.4.cpp', 'File contents: Hello from a test file.')),
+        ('2.5', lambda s: snippet_test(s, '2.5', 't2.5.cpp', 'File in directory contents: Hello from a test directory.')),
+        ('2.6', events_test), ('2.7', disk_read_test), ('2.8', disk_write_test),
+        *[('3.' + str(n), lambda s, n=n: network_test(s, n)) for n in range(1, 9)],
+        *[('4.' + str(n), lambda s, n=n: tasks_test(s, n)) for n in range(1, 4)],
+        ('4.4', lambda s: snippet_test(s, '4.4', 't4.4.cpp', 'Hello from userspace!')),
+        ('4.5', privileged_test), ('4.6', sleep_test),
+        ('4.7', lambda s: snippet_test(s, '4.7', 't4.7.cpp', 'Read from initrd/hello.txt: Hello from the cOS initrd!')),
+        ('4.8', reclaim_test), ('4.9', userspace_memory_test), ('4.10', arguments_test), ('4.11', compiler_test),
+        ('5.1', shell_test), ('5.2', gui_test),
+        *[('5.' + str(n), lambda s, n=n: script_test(s, n)) for n in range(3, 7)],
+        ('5.7', restart_shell_test),
+    ]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output', type=Path, default=ROOT / 'build/check')
+    parser.add_argument('--native-toolchain', type=Path)
+    parser.add_argument('--qemu', default='qemu-system-x86_64')
+    parser.add_argument('--port', type=int, default=45540)
+    parser.add_argument('--jobs', type=int, default=8)
+    parser.add_argument('--timeout-scale', type=float, default=1)
+    parser.add_argument('--only', nargs='+', help='README test IDs to run')
+    parser.add_argument('--list', action='store_true')
+    args = parser.parse_args()
+    tests = cases()
+    if args.list:
+        print('\n'.join(name for name, _ in tests))
+        return 0
+    if args.only:
+        unknown = set(args.only) - {name for name, _ in tests}
+        if unknown:
+            parser.error('Unknown tests: ' + ', '.join(sorted(unknown)))
+        tests = [(name, test) for name, test in tests if name in args.only]
+    require(1 <= args.port <= 65535 and args.jobs > 0 and args.timeout_scale > 0, 'Invalid port, jobs or timeout scale')
+    suite = Suite(args)
+    results = []
+    for name, test in tests:
+        if name == '4.11' and not suite.native:
+            print('SKIP 4.11 (configure NATIVE_TOOLCHAIN to include GCC)', flush=True)
+            results.append({'id': name, 'status': 'SKIP'})
+            continue
+        start = time.monotonic()
+        try:
+            test(suite)
+        except (AssertionError, OSError, subprocess.SubprocessError, ValueError, IndexError, StopIteration) as error:
+            print('FAIL ' + name + ': ' + str(error), flush=True)
+            results.append({'id': name, 'status': 'FAIL', 'error': str(error)})
+        else:
+            print('PASS ' + name, flush=True)
+            results.append({'id': name, 'status': 'PASS'})
+        results[-1]['seconds'] = round(time.monotonic() - start, 2)
+    (suite.output / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
+    counts = Counter(result['status'] for result in results)
+    print(f"{counts['PASS']} passed, {counts['FAIL']} failed, {counts['SKIP']} skipped. Evidence: {suite.output}")
+    return 1 if counts['FAIL'] else 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except (AssertionError, OSError, subprocess.SubprocessError) as error:
+        sys.exit(str(error))
