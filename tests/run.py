@@ -27,7 +27,7 @@ KEYS = {'@': 'shift-2', ' ': 'spc', '.': 'dot', '/': 'slash', '-': 'minus', '=':
 
 
 class Guest:
-    def __init__(self, suite, name, disk=None, expected=None, udp=False, iso=None):
+    def __init__(self, suite, name, disk=None, expected=None, udp=False, iso=None, uefi=False):
         self.suite = suite
         self.directory = suite.output / name
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -46,13 +46,30 @@ class Guest:
                 reservation.bind(('127.0.0.1', 0))
                 self.udpPort = reservation.getsockname()[1]
             network += ',hostfwd=udp:127.0.0.1:' + str(self.udpPort) + '-:1234'
-        command = [suite.qemu, '-cdrom', str(iso or suite.build / 'cOS.iso'), '-m', '1G',
-                   '-display', 'none', '-no-reboot', '-no-shutdown', '-boot', 'd',
+        self.textAddress = 0xb8000
+        command = [suite.qemu, '-m', '1G', '-display', 'none', '-no-reboot', '-no-shutdown',
                    '-drive', 'file=' + str(self.disk) + ',format=raw,if=ide,index=0,media=disk',
                    '-netdev', network, '-device', 'pcnet,netdev=net',
                    '-object', 'filter-dump,id=capture,netdev=net,file=' + str(self.directory / 'network.pcap'),
                    '-monitor', 'tcp:127.0.0.1:' + str(suite.port) + ',server=on,wait=off',
                    '-d', 'int', '-D', str(self.directory / 'qemu.log')]
+        if uefi:
+            firmware = suite.cache_value('OVMF_FIRMWARE')
+            variables = self.directory / 'uefi-vars.fd'
+            shutil.copy2(suite.cache_value('OVMF_VARIABLES'), variables)
+            image = self.directory / 'cOS-uefi.img'
+            shutil.copy2(suite.build / 'cOS-uefi.img', image)
+            command += ['-drive', 'if=pflash,format=raw,readonly=on,file=' + firmware,
+                        '-drive', 'if=pflash,format=raw,file=' + str(variables),
+                        '-drive', 'file=' + str(image) + ',format=raw,if=ide,index=1,media=disk']
+            symbols = subprocess.check_output([suite.cache_value('CMAKE_NM'), '-C',
+                                               str(suite.build / 'kernel.bin')], text=True)
+            match = re.search(r'^([0-9a-fA-F]+) [bB] \(anonymous namespace\)::textBuffer$', symbols, re.M)
+            require(match, 'Could not find the framebuffer console text buffer')
+            # The GOP console keeps its text in the kernel's higher-half physical map.
+            self.textAddress = int(match[1], 16) - 0xffffff8000000000
+        else:
+            command += ['-cdrom', str(iso or suite.build / 'cOS.iso'), '-boot', 'd']
         self.stderr = (self.directory / 'qemu.stderr').open('w')
         self.process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=self.stderr)
         deadline = time.monotonic() + 10
@@ -85,13 +102,13 @@ class Guest:
         return result
 
     def screen(self):
-        dump = self.command('xp /4000bx 0xb8000')
+        dump = self.command('xp /4000bx ' + hex(self.textAddress))
         values = []
         for line in dump.splitlines():
             match = re.match(r'^[0-9a-fA-F]+:\s+(.*)', line.strip())
             if match:
                 values.extend(int(value, 16) for value in re.findall(r'0x([0-9a-fA-F]{2})\b', match[1]))
-        require(len(values) == 4000, 'Could not read the VGA text buffer')
+        require(len(values) == 4000, 'Could not read the console text buffer')
         chars = bytes(values[::2]).decode('cp437').replace('\x00', ' ')
         screen = '\n'.join(chars[i:i + 80].rstrip() for i in range(0, 2000, 80)).rstrip()
         if not self.screens or self.screens[-1] != screen:
@@ -196,7 +213,7 @@ class Suite:
             shutil.rmtree(self.source)
         marker.touch()
         self.source.mkdir()
-        for name in ('src', 'include', 'userspace', 'targets', 'toolchain'):
+        for name in ('src', 'include', 'userspace', 'targets', 'toolchain', 'boot'):
             shutil.copytree(ROOT / name, self.source / name)
         shutil.copy2(ROOT / 'CMakeLists.txt', self.source / 'CMakeLists.txt')
         for program in (ROOT / 'tests/programs').glob('*.cpp'):
@@ -215,6 +232,12 @@ class Suite:
             log.flush()
             result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
         require(result.returncode == 0, 'Build failed. See ' + str(self.output / 'build.log'))
+
+    def cache_value(self, name):
+        cache = (self.build / 'CMakeCache.txt').read_text()
+        match = re.search(r'^' + re.escape(name) + r':[^=]+=(.+)$', cache, re.M)
+        require(match and not match[1].endswith('-NOTFOUND'), 'CMake did not find ' + name)
+        return match[1]
 
     def build_variant(self, snippet=None):
         if self.variant == (snippet or 'shell'):
@@ -239,6 +262,8 @@ class Suite:
     @contextmanager
     def boot(self, name, snippet=None, **kwargs):
         self.build_variant(snippet)
+        if kwargs.get('uefi'):
+            self.build_command(['cmake', '--build', str(self.build), '--target', 'uefi', '-j' + str(self.jobs)])
         guest = Guest(self, name, **kwargs)
         try:
             yield guest
@@ -316,6 +341,14 @@ def fault_test(suite):
         guest.expect('PAGE FAULT4321')
 
 
+def uefi_test(suite):
+    for name, uefi in [('1.10-uefi', True), ('1.10-grub', False)]:
+        with suite.boot(name, uefi=uefi) as guest:
+            guest.shell()
+            guest.run('ls initrd', 'hello.txt')
+            guest.run('cat initrd/hello.txt', 'Hello from the cOS initrd!')
+
+
 def snippet_test(suite, name, snippet, expected):
     with suite.boot(name, snippet) as guest:
         guest.expect(expected)
@@ -359,6 +392,39 @@ def disk_write_test(suite):
         guest.run('cat disk/log.txt', 'Written by a user-space program.')
     for name, expected in [('notes.txt', b'hello from the shell\n'),
                            ('log.txt', b'Written by a user-space program.\n')]:
+        data = subprocess.check_output(['mtype', '-i', str(disk), '::' + name])
+        require(data == expected, 'Host disk contents differ for ' + name + ': ' + repr(data))
+
+
+def long_names_test(suite):
+    suite.build_variant()
+    directory = suite.output / '2.9-write'
+    directory.mkdir(exist_ok=True)
+    disk = directory / 'disk.img'
+    shutil.copy2(suite.build / 'disk.img', disk)
+    source = directory / 'HostSourceFile.cpp'
+    source.write_text('Created on the host.\n')
+    subprocess.run(['mcopy', '-i', str(disk), str(source), '::HostSourceFile.cpp'], check=True)
+    files = [('HostSourceFile.cpp', source.read_bytes()),
+             ('taskManager.cpp', b'hello long name\n'),
+             ('syscallHandler.cpp', b'Written by a user-space program.\n')]
+    with suite.boot('2.9-write', disk=disk) as guest:
+        guest.shell()
+        guest.run('cat disk/HostSourceFile.cpp', 'Created on the host.')
+        guest.run('write disk/taskManager.cpp hello long name', '$ ')
+        guest.run('writefile disk/syscallHandler.cpp', 'Added a line to disk/syscallHandler.cpp.')
+        screen = guest.run('ls disk', 'syscallHandler.cpp')
+        for name, _ in files:
+            require(re.search(r'^' + re.escape(name) + r'\s*$', screen, re.M), 'Guest filename case differs: ' + name)
+        guest.run('cat disk/TASKMANAGER.CPP', 'hello long name')
+    with suite.boot('2.9-reboot', disk=disk) as guest:
+        guest.shell()
+        for name, data in files:
+            guest.run('cat disk/' + name.upper(), data.decode().strip())
+    listing = subprocess.check_output(['mdir', '-b', '-i', str(disk), '::'], text=True)
+    (directory / 'mdir.txt').write_text(listing)
+    for name, expected in files:
+        require('::/' + name in listing.splitlines(), 'Host filename case differs: ' + name)
         data = subprocess.check_output(['mtype', '-i', str(disk), '::' + name])
         require(data == expected, 'Host disk contents differ for ' + name + ': ' + repr(data))
 
@@ -669,13 +735,13 @@ def cases():
         ('1.1', boot_test), ('1.2', memory_test), ('1.3', physical_test),
         ('1.4', lambda s: table_test(s, '1.4', 'GDT', 0x37)), ('1.5', allocation_test),
         ('1.6', lambda s: table_test(s, '1.6', 'IDT', 0xfff)), ('1.7', pic_test),
-        ('1.8', keyboard_test), ('1.9', fault_test),
+        ('1.8', keyboard_test), ('1.9', fault_test), ('1.10', uefi_test),
         ('2.1', lambda s: snippet_test(s, '2.1', 't2.1.cpp', 'Allocation was not overwritten.')),
         ('2.2', lambda s: snippet_test(s, '2.2', 't2.2.cpp', 'Allocated 8192 bytes.')),
         ('2.3', pci_test),
         ('2.4', lambda s: snippet_test(s, '2.4', 't2.4.cpp', 'File contents: Hello from a test file.')),
         ('2.5', lambda s: snippet_test(s, '2.5', 't2.5.cpp', 'File in directory contents: Hello from a test directory.')),
-        ('2.6', events_test), ('2.7', disk_read_test), ('2.8', disk_write_test),
+        ('2.6', events_test), ('2.7', disk_read_test), ('2.8', disk_write_test), ('2.9', long_names_test),
         *[('3.' + str(n), lambda s, n=n: network_test(s, n)) for n in range(1, 9)],
         *[('4.' + str(n), lambda s, n=n: tasks_test(s, n)) for n in range(1, 4)],
         ('4.4', lambda s: snippet_test(s, '4.4', 't4.4.cpp', 'Hello from userspace!')),
