@@ -18,7 +18,7 @@ import time
 from packets import arp_exchange, checksum, ipv4_packets, read_pcap, require, tcp_packets
 
 ROOT = Path(__file__).resolve().parent.parent
-KEYS = {' ': 'spc', '.': 'dot', '/': 'slash', '-': 'minus', '=': 'equal',
+KEYS = {'@': 'shift-2', ' ': 'spc', '.': 'dot', '/': 'slash', '-': 'minus', '=': 'equal',
         ',': 'comma', ';': 'semicolon', "'": 'apostrophe', '(': 'shift-9',
         ')': 'shift-0', '*': 'shift-8', '"': 'shift-apostrophe', '+': 'shift-equal',
         '_': 'shift-minus', '<': 'shift-comma', '>': 'shift-dot', '!': 'shift-1',
@@ -562,6 +562,21 @@ def compiler_test(suite):
         guest.run('disk/hello one two', 'Hello from a program compiled on cOS, with 3 arguments.', timeout=30)
 
 
+def cxx_test(suite):
+    suite.build_variant()
+    disk = suite.output / 'cxx-disk.img'
+    shutil.copy2(suite.build / 'disk.img', disk)
+    subprocess.run(['mcopy', '-i', str(disk), str(ROOT / 'src/x86_64/task/task.asm'), '::task.asm'], check=True)
+    with suite.boot('4.12', disk=disk) as guest:
+        guest.shell()
+        guest.run('g++ @disk/cxx.rsp', '\n$ ', timeout=180)
+        guest.run('disk/cxx', 'Hello from C++ compiled on cOS!')
+        guest.run('nasm -f elf64 disk/task.asm -o disk/task.o', '\n$ ', timeout=60)
+    obj = subprocess.check_output(['mtype', '-i', str(disk), '::task.o'])
+    require(obj[:5] == b'\x7fELF\x02' and struct.unpack_from('<H', obj, 16)[0] == 1,
+            'NASM did not produce an ELF64 relocatable object')
+
+
 def shell_test(suite):
     with suite.boot('5.1') as guest:
         guest.shell()
@@ -643,7 +658,7 @@ def cases():
         ('4.4', lambda s: snippet_test(s, '4.4', 't4.4.cpp', 'Hello from userspace!')),
         ('4.5', privileged_test), ('4.6', sleep_test),
         ('4.7', lambda s: snippet_test(s, '4.7', 't4.7.cpp', 'Read from initrd/hello.txt: Hello from the cOS initrd!')),
-        ('4.8', reclaim_test), ('4.9', userspace_memory_test), ('4.10', arguments_test), ('4.11', compiler_test),
+        ('4.8', reclaim_test), ('4.9', userspace_memory_test), ('4.10', arguments_test), ('4.11', compiler_test), ('4.12', cxx_test),
         ('5.1', shell_test), ('5.2', gui_test),
         *[('5.' + str(n), lambda s, n=n: script_test(s, n)) for n in range(3, 7)],
         ('5.7', restart_shell_test),
@@ -674,8 +689,8 @@ def main():
     suite = Suite(args)
     results = []
     for name, test in tests:
-        if name == '4.11' and not suite.native:
-            print('SKIP 4.11 (configure NATIVE_TOOLCHAIN to include GCC)', flush=True)
+        if name in ('4.11', '4.12') and not suite.native:
+            print('SKIP ' + name + ' (configure NATIVE_TOOLCHAIN to include GCC)', flush=True)
             results.append({'id': name, 'status': 'SKIP'})
             continue
         start = time.monotonic()
