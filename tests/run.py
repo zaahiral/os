@@ -554,3 +554,64 @@ def arguments_test(suite):
         actual = [tuple(map(int, values)) for values in re.findall(r'^\s*(\d+)\s+(\d+)\s+(\d+) ', screen, re.M)]
         require(actual == counts, 'wc counts differ: ' + repr(actual) + ' vs ' + repr(counts))
 
+
+def compiler_test(suite):
+    with suite.boot('4.11') as guest:
+        guest.shell()
+        guest.run('gcc disk/hello.c -o disk/hello', '\n$ ', timeout=180)
+        guest.run('disk/hello one two', 'Hello from a program compiled on cOS, with 3 arguments.', timeout=30)
+
+
+def shell_test(suite):
+    with suite.boot('5.1') as guest:
+        guest.shell()
+        guest.run('ls initrd', 'hello.txt')
+        guest.run('ls initrd/scripts', 'fibonacci.cs')
+        guest.run('cat initrd/hello.txt', 'Hello from the cOS initrd!')
+
+
+def gui_test(suite):
+    with suite.boot('5.2') as guest:
+        guest.kernel_shell()
+        guest.run('echo text survives graphics', '\ntext survives graphics\ncOS>')
+        guest.type('gui')
+        time.sleep(1 * suite.timeoutScale)
+        data = guest.screenshot('desktop').read_bytes()
+        match = re.match(rb'P6\s+(\d+)\s+(\d+)\s+255\s', data)
+        require(match and match.groups() == (b'1024', b'768'), 'Desktop did not enter 1024x768 graphics')
+        pixels = data[match.end():]
+        for x, y, colour in [(10, 10, '111111'), (10, 700, '2e3236'),
+                              (61, 71, 'e9e9e9'), (65, 260, 'ffffff'), (60, 70, '5a5a5a')]:
+            offset = (y * 1024 + x) * 3
+            require(pixels[offset:offset + 3] == bytes.fromhex(colour), 'Desktop pixel differs at ' + str((x, y)))
+        guest.key('esc')
+        guest.expect('text survives graphics')
+        guest.run('echo returned', '\nreturned\ncOS>')
+
+
+def script_test(suite, number):
+    with suite.boot('5.' + str(number)) as guest:
+        guest.kernel_shell()
+        if number == 3:
+            guest.run('run initrd/scripts/hello.cs', 'Hello from cOS!')
+            guest.expect('6 * 7 = 42')
+            guest.wait(lambda text: re.search(r'The kernel has been running for \d+ seconds\.', text), 'uptime builtin')
+        elif number == 4:
+            screen = guest.run('run initrd/scripts/fibonacci.cs', 'fibonacci(14) = 377')
+            values = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377]
+            require(re.findall(r'fibonacci\((\d+)\) = (\d+)', screen) ==
+                    [(str(i), str(value)) for i, value in enumerate(values)], 'Fibonacci output differs')
+        elif number == 5:
+            guest.run('run initrd/scripts/error.cs', 'Error on line 4:')
+            guest.run('cs print(missing);', 'Error on line 1: undefined variable missing.')
+            guest.run('cs print(1 / 0);', 'Error on line 1: division by zero.')
+            guest.run('echo still running', '\nstill running\ncOS>')
+            require('This line is never run.' not in '\n'.join(guest.screens), 'Script continued after error')
+        else:
+            guest.run('run initrd/scripts/countdown.cs', '10...')
+            guest.expect('9...')
+            guest.key('esc')
+            guest.expect('cOS> ')
+            guest.run('echo stopped', '\nstopped\ncOS>')
+            require('Lift off!' not in '\n'.join(guest.screens), 'Countdown was not interrupted')
+
