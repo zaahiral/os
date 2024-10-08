@@ -108,6 +108,30 @@ mcopy -o -i build/disk.img src/x86_64/task/task.asm ::task.asm
 $ nasm -f elf64 disk/task.asm -o disk/task.o
 ```
 
+The optional source disk lets cOS compile its own kernel with the same compiler flags and linker script as CMake. Configure `NATIVE_TOOLCHAIN` as above, then prepare and boot a copy of the source disk:
+
+```
+cmake --build build --target selfhost-disk
+cp build/selfhost.img build/selfhost-run.img
+qemu-system-x86_64 -m 1G -cdrom build/cOS.iso -boot d -nic user,model=pcnet -drive file=build/selfhost-run.img,format=raw,if=ide
+```
+
+Inside cOS, compile the build runner and run the command list:
+
+```
+$ gcc disk/build.c -o disk/build
+$ disk/build disk/build.txt
+```
+
+After `Build complete`, close QEMU and package the kernel on the host:
+
+```
+cmake --build build --target selfhost-iso
+qemu-system-x86_64 -m 1G -cdrom build/selfhost.iso -boot d -nic user,model=pcnet -drive file=build/selfhost-run.img,format=raw,if=ide
+```
+
+`toolchain/selfhost-disk.py` stages the sources, headers, response files and command list on a separate 64MiB FAT32 image. The small C runner uses `posix_spawnp` and `waitpid`, prints each command, and stops at the first failure. GCC compiles every kernel C++ source, NASM assembles every kernel assembly source, and ld writes `disk/kernel.bin`. The `selfhost-iso` target extracts that file with mtools and packages it with GRUB. `SELFHOST_BUILT_DISK` selects a different completed disk image.
+
 ## Project Specification
 
 These are checkboxes, but I will probably only review these guidelines at the end to check them off, rather than iteratively during the project. These are mostly for my own reference.
@@ -670,7 +694,7 @@ Run the numbered tests below with Python 3, QEMU and the build tools listed abov
 cmake --build build --target check
 ```
 
-The runner in `tests/run.py` builds kernel variants in `build/check/source` and boots them headless. It checks VGA text, monitor registers, network captures and the desktop framebuffer, and prints one result per test ID. Each guest uses a copy of the test disk. Test 4.11 runs when the build is configured with `NATIVE_TOOLCHAIN`; otherwise it is reported as skipped. The networking tests use local servers on ports 1234 and 3939 and do not need Internet access.
+The runner in `tests/run.py` builds kernel variants in `build/check/source` and boots them headless. It checks VGA text, monitor registers, network captures and the desktop framebuffer, and prints one result per test ID. Each guest uses a copy of the test disk. Tests 4.11 through 4.13 run when the build is configured with `NATIVE_TOOLCHAIN`; otherwise they are reported as skipped. Test 4.13 compiles the whole kernel and can take several minutes. The networking tests use local servers on ports 1234 and 3939 and do not need Internet access.
 
 `build/check` holds the build log, `results.json`, and each test's text screens, PPM screenshots, packet capture and exception vector counts. To run selected tests, use `python3 tests/run.py --only 1.1 4.9`. The runner accepts `--output`, `--native-toolchain`, `--port` (45540 by default), and `--timeout-scale` for slower hosts.
 
@@ -1042,6 +1066,14 @@ To test networking, I will use QEMU’s command line to save a dump of network c
    <td>GCC can compile freestanding C++20 and NASM can assemble kernel code inside cOS. This is tested by running <code>g++ @disk/cxx.rsp</code>, running <code>disk/cxx</code>, and assembling <code>src/x86_64/task/task.asm</code> copied to <code>disk/task.asm</code> with <code>nasm -f elf64 disk/task.asm -o disk/task.o</code>.
    </td>
    <td>The C++ program prints its message, and NASM produces an ELF64 relocatable object matching the host assembler's output.
+   </td>
+  </tr>
+  <tr>
+   <td>4.13
+   </td>
+   <td>cOS can build its own kernel. The native compiler builds the C runner, which compiles every kernel C++ and assembly source and links <code>disk/kernel.bin</code>. The host extracts it with mtools, makes a GRUB ISO and boots it in a second QEMU guest.
+   </td>
+   <td>All build commands succeed, and the kernel built inside cOS reaches the user shell and runs <code>echo self-hosted kernel</code>.
    </td>
   </tr>
 </table>
@@ -2445,6 +2477,18 @@ int main(int argc, char** argv)
 
 <p align="center">
 <i>GCC compiling the freestanding C++20 example and NASM assembling the kernel's task code for test 4.12. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-4.13-build.png" alt="Kernel compilation completed inside cOS for test 4.13.">
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-4.13-boot.png" alt="The kernel built inside cOS running the user shell for test 4.13.">
+</p>
+
+<p align="center">
+<i>The native build finishes, and its kernel boots from a GRUB ISO and reaches the shell for test 4.13. </i>
 </p>
 
 <p align="center">
