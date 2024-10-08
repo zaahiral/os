@@ -29,7 +29,7 @@ Currently there are only a few mainstream operating systems: Microsoft Windows, 
 
 ## Project Outline
 
-Mainstream operating systems contain millions of lines of code and retain design constraints for backwards compatibility, which makes them difficult to study as complete systems. Teaching systems such as MINIX and xv6 deliberately use a smaller scope. cOS explores a different point in that design space by implementing an x86-64 kernel, user-space processes, a virtual filesystem and a TCP/IP stack in one project.
+Mainstream operating systems contain millions of lines of code and retain design constraints for backwards compatibility, which makes them difficult to study as complete systems. Teaching systems such as MINIX and xv6 deliberately use a smaller scope. cOS explores a different point in that design space by implementing an x86-64 kernel, user-space processes, a virtual filesystem, a writable FAT32 disk and a TCP/IP stack in one project. It also has a shell, a small scripting language, a graphical desktop and its own GCC toolchain, and it can compile C and C++ programs, and its own kernel, inside itself.
 The project began as a way to understand computer architecture and operating-system implementation. It also provides students with a worked example of how paging, interrupts, scheduling, system calls, filesystems and networking fit together.
 
 ## Building and Running
@@ -42,28 +42,35 @@ cmake --build build
 cmake --build build --target run
 ```
 
-This builds `build/cOS.iso` and boots it in QEMU with the AMD PCnet network card. Files placed in `targets/x86_64/initrd` are packed into the initial ramdisk, and the kernel opens them by their path in the ramdisk, such as `initrd/hello.txt`. User-space programs in `userspace` are compiled into `initrd/bin`, and cOS boots into the user shell, `initrd/bin/sh`.
+This builds `build/cOS.iso` and boots it in QEMU with 1GiB of memory and the AMD PCnet network card. cOS starts the user shell, `initrd/bin/sh`. `help` lists its commands, and `exit` leaves it for the kernel shell, which has more.
 
-The build also makes `build/disk.img`, a FAT32 disk containing the files in `targets/x86_64/disk`, which the kernel mounts at `disk/`. Files that cOS writes to the disk are kept between runs, and can be read on the host with mtools, for example `mtype -i build/disk.img ::notes.txt`. The FAT32 driver supports VFAT long names, including names such as `taskManager.cpp`, and matches ASCII letters without regard to case. Long names keep their case and use UTF-8 in VFS paths and UTF-16 on disk. Files with 8.3 names keep the existing lower-case display. The VFS still limits whole paths to 179 bytes.
+Files placed in `targets/x86_64/initrd` are packed into the initial ramdisk, and the kernel opens them by their path in the ramdisk, such as `initrd/hello.txt`. User-space programs in `userspace` are compiled into `initrd/bin`.
 
-The custom UEFI bootloader is built separately with the GNU cross-compiler and binutils, without a UEFI library:
+### The disk
+
+The build also makes `build/disk.img`, a 64MiB FAT32 disk containing the files in `targets/x86_64/disk`, which the kernel mounts at `disk/`. Files that cOS writes to the disk are kept between runs, and can be read on the host with mtools, for example `mtype -i build/disk.img ::notes.txt`. Long file names such as `taskManager.cpp` work in both directions. A whole path is limited to 179 bytes.
+
+### Running the tests
+
+`cmake --build build --target check` runs the numbered tests in QEMU. [Running the tests](#running-the-tests) under Testing has the details.
+
+### Booting with UEFI
+
+cOS has its own UEFI bootloader, built with the same GNU cross-compiler and no UEFI library:
 
 ```
 cmake --build build --target uefi
 cmake --build build --target run-uefi
 ```
 
-This makes `build/cOS-uefi.img`, a 128MiB FAT image with `EFI/BOOT/BOOTX64.EFI`, `kernel.bin` and `initrd.tar`. The run target boots it with OVMF and keeps `disk.img` as the data disk. CMake finds Homebrew QEMU's firmware automatically. On other systems, set `OVMF_FIRMWARE` and `OVMF_VARIABLES` to a matching OVMF code image and variables template. The variables template is copied into the build directory before use. The loader requires a 32-bit RGB or BGR GOP framebuffer of at least 640 by 400 pixels below 4GiB. The `gui` demo still requires VGA text mode and is unavailable with the GOP console. GRUB remains the default boot path.
+This makes `build/cOS-uefi.img`, a FAT image with `EFI/BOOT/BOOTX64.EFI`, `kernel.bin` and `initrd.tar`, and boots it with OVMF, with `disk.img` as the data disk. CMake finds Homebrew QEMU's firmware. On other systems, set `OVMF_FIRMWARE` and `OVMF_VARIABLES` to an OVMF code image and variables template. The loader needs a 32-bit GOP framebuffer of at least 640 by 400 pixels. The desktop still needs VGA, so `gui` does not work when booting with UEFI.
 
-`toolchain/build-cos-toolchain.sh` builds a cross compiler for cOS itself, binutils 2.42 and GCC 14.2 for the `x86_64-cos` target, from the patches in `toolchain/patches`. It needs a Linux machine, and takes about 15 minutes with 16 cores:
+### The cOS toolchain
+
+cOS has its own GCC toolchain for the `x86_64-cos` target. Three scripts build it on a Linux machine, each given the same work directory and install prefix:
 
 ```
 toolchain/build-cos-toolchain.sh <work directory> <install prefix> [jobs]
-```
-
-`toolchain/build-cos-newlib.sh` then builds the newlib C library into the toolchain's sysroot, along with `libcos` (`userspace/libcos`), which gives newlib the cOS system calls it needs, such as `read`, `write` and `sbrk`. It also builds libgcc and libstdc++. libcos provides `mkdir`, `unlink`, `posix_spawn` and `waitpid`, and programs receive environment variables from the program that started them. Ordinary C programs, using `printf`, `malloc` and `FILE`, can then be compiled for cOS and copied into `targets/x86_64/initrd/bin`:
-
-```
 toolchain/build-cos-newlib.sh <work directory> <install prefix> [jobs]
 x86_64-cos-gcc -O2 program.c -o program
 ```
