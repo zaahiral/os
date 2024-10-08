@@ -54,6 +54,8 @@ namespace Events {
                 if (listit->tid == tid) { (*it)->remove(listit); break; }
             }
         }
+        // A task can wait again on this descriptor, so discard the records of its previous wait.
+        descriptor->last.waitListElements.clear();
         Task::TaskManager::instance().unlock();
     }
 

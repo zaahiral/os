@@ -41,6 +41,7 @@ namespace Common {
             }
             m_head = nullptr;
             m_tail = nullptr;
+            m_size = 0;
             m_spinlock.release();
         }
 

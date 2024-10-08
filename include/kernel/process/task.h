@@ -18,12 +18,10 @@ namespace Task
     class SharableTaskResource
     {
     public:
-        SharableTaskResource(T resource)
+        SharableTaskResource(const T& resource)
         {
             // Allocate a new control block with the resource.
             m_controlBlock = new SharableTaskResourceControlBlock(resource);
-            m_controlBlock->m_resource = resource;
-            m_controlBlock->m_refCount++;
         }
 
         SharableTaskResource(const SharableTaskResource& sharedResource)
@@ -81,7 +79,7 @@ namespace Task
             friend class SharableTaskResource<T>;
             T m_resource;
             uint64_t m_refCount;
-            SharableTaskResourceControlBlock(T resource) : m_resource(resource) {} 
+            SharableTaskResourceControlBlock(const T& resource) : m_resource(resource), m_refCount(1) {}
         };
         SharableTaskResourceControlBlock* m_controlBlock;
     };

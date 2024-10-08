@@ -523,8 +523,8 @@ def reclaim_test(suite):
             samples.append(int(re.findall(r'Free memory: (\d+) KiB', screen)[-1]))
         after = samples[-1]
         (guest.directory / 'memory.json').write_text(json.dumps({'beforeKiB': before, 'afterKiB': after, 'samplesKiB': samples}) + '\n')
-        # The kernel heap retains its backing pages, so allow four pages of allocator growth.
-        require(before - after <= 16, 'Memory fell after ten runs: ' + str(before - after) + ' KiB')
+        # The kernel heap retains its backing pages, so allow one page of allocator growth.
+        require(before - after <= 4, 'Memory fell after ten runs: ' + str(before - after) + ' KiB')
 
 
 def userspace_memory_test(suite):

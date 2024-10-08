@@ -16,6 +16,38 @@ namespace Common {
             m_totalElements = 0;
             m_bucketArray = new DoublyLinkedList<Pair<T, U>>[m_bucketNum];
         }
+        ~Hashmap() { delete[] m_bucketArray; }
+
+        Hashmap(const Hashmap& other) : m_bucketNum(other.m_bucketNum), m_totalElements(other.m_totalElements), m_maxLoadFactor(other.m_maxLoadFactor)
+        {
+            m_bucketArray = new DoublyLinkedList<Pair<T, U>>[m_bucketNum];
+            for (uint64_t i = 0; i < m_bucketNum; i++) { m_bucketArray[i] = other.m_bucketArray[i]; }
+        }
+
+        Hashmap(Hashmap&& other) : Hashmap() { swap(other); }
+
+        Hashmap& operator=(Hashmap other)
+        {
+            swap(other);
+            return *this;
+        }
+
+        void swap(Hashmap& other)
+        {
+            auto buckets = m_bucketArray;
+            m_bucketArray = other.m_bucketArray;
+            other.m_bucketArray = buckets;
+            auto bucketNum = m_bucketNum;
+            m_bucketNum = other.m_bucketNum;
+            other.m_bucketNum = bucketNum;
+            auto totalElements = m_totalElements;
+            m_totalElements = other.m_totalElements;
+            other.m_totalElements = totalElements;
+            auto maxLoadFactor = m_maxLoadFactor;
+            m_maxLoadFactor = other.m_maxLoadFactor;
+            other.m_maxLoadFactor = maxLoadFactor;
+        }
+
         uint64_t bucket_index(T key)
         {
             uint64_t hashedIntegers[2];
