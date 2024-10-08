@@ -18,6 +18,7 @@
 \exhyphenpenalty=10000
 
 \usepackage{tikz}
+\usetikzlibrary{arrows.meta}
 \tikzset{
   handout/.style={line width=0.6pt, draw=rule},
   hbox/.style={draw, line width=0.7pt, rounded corners=2pt, font=\small, align=center,
@@ -25,6 +26,8 @@
   root/.style={hbox, fill=shadeB, font=\normalsize\bfseries, text width=3.6cm, minimum height=10mm},
   part/.style={hbox, fill=shadeA, font=\small\bfseries, text width=3.6cm},
   leaf/.style={hbox, draw=rule, text width=3.0cm},
+  stage/.style={hbox, fill=shadeA, text width=3.0cm, minimum height=14mm},
+  flow/.style={-{Stealth[length=2.2mm]}, line width=0.7pt},
 }
 
 % \layer{x}{label} draws the top node, centred above the branches.
@@ -54,7 +57,7 @@
 \begin{tikzpicture}[handout]
   \layer{6}{Kernel}
   \fork{0}{12}
-  \branch{0}{Boot}{Long mode, Multiboot, Module loading}
+  \branch{0}{Boot}{Long mode, Multiboot, UEFI loader, Module loading}
   \branch{4}{CPU Management}{Global Descriptor Table, Task State Segment, Interrupts}
   \branch{8}{Memory Manager}{Physical bitmap, Paging, Virtual page allocator}
   \branch{12}{Kernel Heap Manager}{Heap allocator}
@@ -65,19 +68,20 @@
 \begin{tikzpicture}[handout]
   \layer{6}{Kernel}
   \fork{2}{10}
-  \branch{2}{Devices}{PCI bus iteration, Keyboard}
+  \branch{2}{Devices}{PCI bus iteration, Keyboard, ATA disk, Bochs VBE graphics}
   \branch{6}{Events}{Sender registry, Dispatcher, Task blocking}
-  \branch{10}{Task Manager}{Task creation, Task scheduling, Task switching, Synchronisation}
+  \branch{10}{Task Manager}{Task creation, Task scheduling, Task switching, Processor state, Synchronisation, Exit and reaping}
 \end{tikzpicture}
 \end{diagram}
 
 % Filesystem layer
 \begin{diagram}
 \begin{tikzpicture}[handout]
-  \layer{2}{Filesystem Layer}
-  \fork{0}{4}
-  \branch{0}{Virtual Filesystem Manager}{File tree, Filesystem driver interface}
+  \layer{4}{Filesystem Layer}
+  \fork{0}{8}
+  \branch{0}{Virtual Filesystem Manager}{File tree, Path resolution, Filesystem driver interface}
   \branch{4}{TAR driver}{TAR header parsing, VFS node translation}
+  \branch{8}{FAT32 driver}{Cluster chains, Directory entries, Long file names}
 \end{tikzpicture}
 \end{diagram}
 
@@ -106,10 +110,49 @@
 % User-space
 \begin{diagram}
 \begin{tikzpicture}[handout]
-  \layer{2}{User-space}
-  \fork{0}{4}
-  \branch{0}{ELF Loader}{Loads in segments}
-  \branch{4}{System Calls}{Syscall handler}
+  \layer{6}{User-space}
+  \fork{0}{12}
+  \branch{0}{ELF Loader}{Loads in sections, Arguments and environment, Thread-local storage}
+  \branch{4}{System Calls}{Syscall handler, Files and directories, Programs, Memory}
+  \branch{8}{C Library}{Header-only library, libcos for newlib}
+  \branch{12}{Programs}{User shell, File utilities, Native toolchain}
+\end{tikzpicture}
+\end{diagram}
+
+% Shell, graphics and scripting
+\begin{diagram}
+\begin{tikzpicture}[handout]
+  \layer{6}{Shell and Desktop}
+  \fork{0}{12}
+  \branch{0}{Kernel shell}{Built-in commands, Program launching}
+  \branch{4}{User shell}{Reading commands, Program launching}
+  \branch{8}{Desktop}{Framebuffer drawing, Windows}
+  \branch{12}{cScript}{Lexer, Parser, Interpreter}
+\end{tikzpicture}
+\end{diagram}
+
+% Toolchain
+\begin{diagram}
+\begin{tikzpicture}[handout]
+  \layer{6}{Toolchain}
+  \fork{0}{12}
+  \branch{0}{Cross compiler}{binutils 2.42, GCC 14.2, x86\_64-cos target}
+  \branch{4}{C library}{newlib, libcos, libgcc and libstdc++}
+  \branch{8}{Native toolchain}{GCC and G++, binutils, NASM}
+  \branch{12}{Self-hosted build}{Source disk, Build runner, Kernel image}
+\end{tikzpicture}
+\end{diagram}
+
+% Self-hosted build
+\begin{diagram}
+\begin{tikzpicture}[handout]
+  \node[stage] (sources) at (0, 0) {Kernel sources on the source disk};
+  \node[stage] (compile) at (4, 0) {g++, nasm and ld run inside cOS};
+  \node[stage] (kernel) at (8, 0) {kernel.bin written to the disk};
+  \node[stage] (boot) at (12, 0) {GRUB image boots the new kernel};
+  \draw[flow] (sources) -- (compile);
+  \draw[flow] (compile) -- (kernel);
+  \draw[flow] (kernel) -- (boot);
 \end{tikzpicture}
 \end{diagram}
 
