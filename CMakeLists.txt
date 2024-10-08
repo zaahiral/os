@@ -141,6 +141,29 @@ add_custom_target(run
     USES_TERMINAL)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
+# The source disk is separate so a normal run keeps its small data disk and any files written there.
+file(GLOB_RECURSE SELFHOST_HEADERS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/include/*)
+set(SELFHOST_STANDARD_FLAG ${CMAKE_CXX${CMAKE_CXX_STANDARD}_EXTENSION_COMPILE_OPTION})
+if(DEFINED CMAKE_CXX_EXTENSIONS AND NOT CMAKE_CXX_EXTENSIONS)
+    set(SELFHOST_STANDARD_FLAG ${CMAKE_CXX${CMAKE_CXX_STANDARD}_STANDARD_COMPILE_OPTION})
+endif()
+string(TOUPPER "${CMAKE_BUILD_TYPE}" SELFHOST_CONFIGURATION)
+add_custom_command(OUTPUT selfhost.img
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/selfhost-disk.py
+        --source ${CMAKE_CURRENT_SOURCE_DIR} --output ${CMAKE_CURRENT_BINARY_DIR}/selfhost.img
+        --flags "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${SELFHOST_CONFIGURATION}} ${SELFHOST_STANDARD_FLAG}" ${KERNEL_SOURCES}
+    DEPENDS ${KERNEL_SOURCES} ${SELFHOST_HEADERS} toolchain/selfhost-disk.py toolchain/selfbuild.c ${LINKER_SCRIPT}
+    VERBATIM)
+add_custom_target(selfhost-disk DEPENDS selfhost.img)
+set(SELFHOST_BUILT_DISK ${CMAKE_CURRENT_BINARY_DIR}/selfhost-run.img CACHE FILEPATH "Disk containing the kernel built inside cOS")
+add_custom_target(selfhost-iso
+    COMMAND ${MCOPY} -o -i ${SELFHOST_BUILT_DISK} ::kernel.bin kernel-selfhost.bin
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${TARGET_DIR}/iso selfhost-iso
+    COMMAND ${CMAKE_COMMAND} -E copy kernel-selfhost.bin selfhost-iso/boot/kernel.bin
+    COMMAND ${CMAKE_COMMAND} -E copy initrd.tar selfhost-iso/boot/initrd.tar
+    COMMAND ${GRUB_MKRESCUE} -o selfhost.iso selfhost-iso
+    DEPENDS initrd.tar
+    VERBATIM)
 set(CHECK_ARGUMENTS --output ${CMAKE_CURRENT_BINARY_DIR}/check)
 if(NATIVE_TOOLCHAIN)
     list(APPEND CHECK_ARGUMENTS --native-toolchain ${NATIVE_TOOLCHAIN})
