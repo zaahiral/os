@@ -662,6 +662,18 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 
 I will test using white-box testing, as black-box testing would not be appropriate for the kernel. Instead, code segments are run in the kernel or as processes. 
 
+### Running the tests
+
+Run the numbered tests below with Python 3, QEMU and the build tools listed above:
+
+```
+cmake --build build --target check
+```
+
+The runner in `tests/run.py` builds kernel variants in `build/check/source` and boots them headless. It checks VGA text, monitor registers, network captures and the desktop framebuffer, and prints one result per test ID. Each guest uses a copy of the test disk. Test 4.11 runs when the build is configured with `NATIVE_TOOLCHAIN`; otherwise it is reported as skipped. The networking tests use local servers on ports 1234 and 3939 and do not need Internet access.
+
+`build/check` holds the build log, `results.json`, and each test's text screens, PPM screenshots, packet capture and exception vector counts. To run selected tests, use `python3 tests/run.py --only 1.1 4.9`. The runner accepts `--output`, `--native-toolchain`, `--port` (45540 by default), and `--timeout-scale` for slower hosts.
+
 ### Processor Initialisation 
 
 It is the operating system’s responsibility to properly initialise the processor to be able to execute code at various privilege levels, receive interrupts and use virtual memory addressing. To execute the operating system, I will use virtualisation software to emulate real hardware. I will be using QEMU.
