@@ -314,7 +314,10 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Kernel
 
 <p align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/kernel-dark.svg">
 <img width="640" alt="Hierarchy chart of the kernel." src="docs/diagrams/kernel.svg">
+</picture>
 </p>
 
 
@@ -524,7 +527,10 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Filesystem Layer
 
 <p align="center">
-<img width="340" alt="Hierarchy chart of the filesystem layer." src="docs/diagrams/filesystem.svg">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/filesystem-dark.svg">
+<img width="490" alt="Hierarchy chart of the filesystem layer." src="docs/diagrams/filesystem.svg">
+</picture>
 </p>
 
 
@@ -610,7 +616,10 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Networking layer
 
 <p align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/networking-dark.svg">
 <img width="490" alt="Hierarchy chart of the networking layer." src="docs/diagrams/networking.svg">
+</picture>
 </p>
 
 <table>
@@ -677,7 +686,10 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Internet Protocol v4
 
 <p align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/ipv4-dark.svg">
 <img width="340" alt="Hierarchy chart of the Internet Protocol v4 layer." src="docs/diagrams/ipv4.svg">
+</picture>
 </p>
 
 <table>
@@ -744,7 +756,10 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Userspace
 
 <p align="center">
-<img width="340" alt="Hierarchy chart of user-space." src="docs/diagrams/userspace.svg">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/userspace-dark.svg">
+<img width="640" alt="Hierarchy chart of user-space." src="docs/diagrams/userspace.svg">
+</picture>
 </p>
 
 <table>
@@ -860,7 +875,10 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Shell and Desktop
 
 <p align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/shell-dark.svg">
 <img width="640" alt="Hierarchy chart of the shells, the desktop and cScript." src="docs/diagrams/shell.svg">
+</picture>
 </p>
 
 <table>
@@ -957,7 +975,10 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 ### Toolchain
 
 <p align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/toolchain-dark.svg">
 <img width="640" alt="Hierarchy chart of the cOS toolchain." src="docs/diagrams/toolchain.svg">
+</picture>
 </p>
 
 <table>
@@ -1070,7 +1091,10 @@ We show hierarchy charts for each part of the operating system, followed by a ta
 </table>
 
 <p align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/selfhost-dark.svg">
 <img width="700" alt="The self-hosted build: the kernel sources on the source disk are compiled and linked inside cOS, and the resulting kernel.bin boots from a GRUB image." src="docs/diagrams/selfhost.svg">
+</picture>
 </p>
 
 ## Testing
