@@ -93,6 +93,11 @@ namespace Task
             m_hashmap.insert(m_nextAvailID, descriptor);
             return m_hashmap.find(m_nextAvailID++);
         }
+        void insert_at(uint64_t id, T descriptor)
+        {
+            m_hashmap.insert(id, descriptor);
+            if (id >= m_nextAvailID) { m_nextAvailID = id + 1; }
+        }
         void remove(uint64_t id) { m_hashmap.remove(id); }
         // IDs are given out in order, so every descriptor in the table has an ID below this.
         uint64_t get_id_limit() { return m_nextAvailID; }

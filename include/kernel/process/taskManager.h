@@ -26,6 +26,8 @@ namespace Task
         void add_task(Task task);
         void block_task();
         void unblock_task(TaskID taskID);
+        // Wake a task while the caller holds the task manager lock.
+        void unblock_task_locked(TaskID taskID) { m_scheduler->unblock_task(taskID); }
         Task create_new_task(SharableTaskResource<Memory::RegionableVirtualAddressSpace> tlTable, SharableTaskResource<FileDescriptorTable> openFileDescriptors,
                     SharableTaskResource<EventDescriptorTable> openEventDescriptors, uint64_t taskPriority = 512);
         Task create_new_kernel_task(uint64_t taskPriority = 512);

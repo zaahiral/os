@@ -1,5 +1,6 @@
 #ifndef ELF_H
 #define ELF_H
+#include "process/syscallnumbers.h"
 
 #include "fs/vfs.h"
 #include "memory/MemoryManager.h"
@@ -167,7 +168,7 @@ namespace Loader
     // The entry point of a task that runs a user-space program, whose ProgramStart is the task's argument.
     void user_program_task();
     // Start a user-space program in a new task with optional arguments and environment, and return the task's ID.
-    Task::TaskID spawn_user_program(const char* path, const char* arguments = nullptr, const char* environment = nullptr);
+    Task::TaskID spawn_user_program(const char* path, const char* arguments = nullptr, const char* environment = nullptr, const SpawnFileAction* actions = nullptr, uint64_t actionCount = 0);
 } 
 
 #endif

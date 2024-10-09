@@ -59,12 +59,8 @@ namespace Filesystem
         char name[256];
     };
 
-    struct taskfd
-    {
-        uint64_t fd;
-        uint64_t offset;
-        Filesystem::VirtualFilesystemNode* node;
-    };
+    struct OpenFile;
+    using taskfd = OpenFile*;
 
     class VirtualFilesystemManager;
 

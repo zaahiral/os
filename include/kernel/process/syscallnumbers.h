@@ -31,6 +31,30 @@
 #define SYSCALL_UNLINK 25
 #define SYSCALL_MKDIR 26
 #define SYSCALL_DUP 27
+#define SYSCALL_PIPE 28
+#define SYSCALL_DUP2 29
+#define SYSCALL_SPAWN_ACTIONS 30
+
+#define MAX_FILE_DESCRIPTORS 256
+#define MAX_SPAWN_ACTIONS 64
+#define SPAWN_DUP2 1
+#define SPAWN_CLOSE 2
+
+struct SpawnFileAction
+{
+    int operation;
+    int fd;
+    int newFd;
+};
+
+struct SpawnRequest
+{
+    const char* path;
+    const char* arguments;
+    const char* environment;
+    const struct SpawnFileAction* actions;
+    unsigned long long actionCount;
+};
 
 // Flags for SYSCALL_FOPEN.
 #define FILE_CREATE 0x1
@@ -49,7 +73,13 @@
 struct FileStatus
 {
     unsigned long long size;
-    unsigned long long isDirectory;
+    // The legacy name and structure size are kept for binaries built with the earlier libcos.
+    union
+    {
+        unsigned long long isDirectory;
+        // 0 is a regular file, 1 a directory, 2 a console, and 3 a pipe.
+        unsigned long long kind;
+    };
     unsigned long long inode;
 };
 

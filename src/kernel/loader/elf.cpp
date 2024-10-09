@@ -1,6 +1,7 @@
 #include "loader/elf.h"
 #include "libc/string.h"
 #include "process/taskManager.h"
+#include "fs/file.h"
 
 namespace Loader
 {
@@ -51,6 +52,16 @@ namespace Loader
 
     bool prepare_elf(char* path, Task::Task* task)
     {
+        // Older kernel callers load a program directly into their own task rather than using spawn.
+        auto& files = *task->get_file_descriptor_table();
+        if (!files.get_id_limit() && task->get_tlTable().get_physical_address().get()
+            == Memory::MemoryManager::instance().get_main_address_space().get_physical_address().get())
+        {
+            auto console = new Filesystem::OpenFile();
+            console->kind = Filesystem::OpenFile::CONSOLE;
+            console->references = 3;
+            for (uint64_t fd = 0; fd < 3; fd++) { files.insert_at(fd, console); }
+        }
         // Load the ELF file into memory.
         auto fd = Filesystem::VirtualFilesystemManager::instance().open_file(path, 0);
         if (!fd || !(fd->flags & Filesystem::VirtualFilesystemNode::VFS_FILE))
@@ -236,7 +247,7 @@ namespace Loader
         start_userspace_task_sysret((uint64_t)entryPoint, stackPointer, argc, argv, envp);
     }
 
-    Task::TaskID spawn_user_program(const char* path, const char* arguments, const char* environment)
+    Task::TaskID spawn_user_program(const char* path, const char* arguments, const char* environment, const SpawnFileAction* actions, uint64_t actionCount)
     {
         // The task keeps its own copy of the command line and environment, which it frees once the program is loaded.
         // Arguments that would make the command line too long are cut short.
@@ -260,7 +271,55 @@ namespace Loader
         }
         start->environment[length] = '\0';
 
-        auto task = Task::TaskManager::instance().create_new_user_task();
+        auto& manager = Task::TaskManager::instance();
+        manager.lock();
+        Task::FileDescriptorTable files;
+        auto parent = manager.get_current_task_pointer();
+        if (parent && parent->get_heap_start())
+        {
+            auto& parentFiles = *parent->get_file_descriptor_table();
+            for (uint64_t fd = 0; fd < parentFiles.get_id_limit(); fd++)
+            {
+                auto entry = parentFiles.get(fd);
+                if (entry.is_end()) { continue; }
+                Filesystem::retain_file(entry->last);
+                files.insert_at(fd, entry->last);
+            }
+        }
+        else
+        {
+            auto console = new Filesystem::OpenFile();
+            console->kind = Filesystem::OpenFile::CONSOLE;
+            console->references = 3;
+            for (uint64_t fd = 0; fd < 3; fd++) { files.insert_at(fd, console); }
+        }
+        bool isValid = true;
+        for (uint64_t i = 0; i < actionCount && isValid; i++)
+        {
+            auto& action = actions[i];
+            if (action.operation == SPAWN_DUP2)
+            {
+                isValid = Filesystem::duplicate_file(files, action.fd, action.newFd) >= 0;
+            }
+            else if (action.operation == SPAWN_CLOSE) { isValid = Filesystem::close_file(files, action.fd); }
+            else { isValid = false; }
+        }
+        if (!isValid)
+        {
+            Filesystem::close_files(files);
+            manager.unlock();
+            delete start;
+            return -2;
+        }
+        auto task = manager.create_new_user_task();
+        // The temporary table transfers its references to the new task's table.
+        auto& childFiles = *task.get_file_descriptor_table();
+        for (uint64_t fd = 0; fd < files.get_id_limit(); fd++)
+        {
+            auto entry = files.get(fd);
+            if (!entry.is_end()) { childFiles.insert_at(fd, entry->last); }
+        }
+        manager.unlock();
         task.set_entry_point((void*)& user_program_task);
         task.set_argument(start);
         Task::TaskManager::instance().add_task(task);

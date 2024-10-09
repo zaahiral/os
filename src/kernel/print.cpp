@@ -130,6 +130,12 @@ void clear_screen()
     update_cursor();
 }
 
+void print_bytes(const char* buffer, uint64_t count)
+{
+    for (uint64_t i = 0; i < count; i++) { putc(buffer[i]); }
+    update_cursor();
+}
+
 void printf(const char* str)
 {
     while (*str)

@@ -4,6 +4,7 @@
 #include "event/dispatcher.h"
 #include "cpu/io/pit.h"
 #include "print.h"
+#include "fs/file.h"
 
 // TODO: Validate these syscalls so that everything is checked, as the arguments are from ring 3 and
 // a broken/malicious program could cause a kernel crash
@@ -108,19 +109,17 @@ uint64_t fopen_syscall(uint64_t filename, uint64_t flags)
         if (vnode) { delete vnode; }
         return -1;
     }
-    Filesystem::taskfd taskFileDescriptor;
-    taskFileDescriptor.node = vnode;
-    // With FILE_APPEND, writes start at the end of the file.
-    taskFileDescriptor.offset = (flags & FILE_APPEND) ? Filesystem::VirtualFilesystemManager::instance().filelen(vnode) : 0;
+    auto file = new Filesystem::OpenFile();
+    file->node = vnode;
+    file->append = flags & FILE_APPEND;
 
     // The file descriptor is the ID of the entry in the task's file descriptor table.
     Task::TaskManager::instance().lock();
     auto& fileDescriptorTable = *Task::TaskManager::instance().get_current_task_pointer()->get_file_descriptor_table();
-    auto entry = fileDescriptorTable.insert(taskFileDescriptor);
-    entry->last.fd = entry->first;
-    auto fd = entry->first;
+    auto fd = Filesystem::install_file(fileDescriptorTable, file);
+    if (fd < 0) { Filesystem::release_file(file); }
     Task::TaskManager::instance().unlock();
-    return fd;
+    return fd < 0 ? -2 : fd;
 }
 
 uint64_t fread_syscall(uint64_t fd, uint64_t buf, uint64_t count)
@@ -134,12 +133,7 @@ uint64_t fread_syscall(uint64_t fd, uint64_t buf, uint64_t count)
         Task::TaskManager::instance().unlock();
         return -1;
     }
-    // Read from the current offset, but not past the end of the file.
-    auto length = Filesystem::VirtualFilesystemManager::instance().filelen(entry->last.node);
-    if (entry->last.offset >= length) { count = 0; }
-    else if (entry->last.offset + count > length) { count = length - entry->last.offset; }
-    auto bytesRead = Filesystem::VirtualFilesystemManager::instance().read(entry->last.node, entry->last.offset, count, (void*)buf);
-    entry->last.offset += bytesRead;
+    auto bytesRead = Filesystem::read_file(entry->last, (char*)buf, count);
     Task::TaskManager::instance().unlock();
     return bytesRead;
 }
@@ -155,8 +149,7 @@ uint64_t fwrite_syscall(uint64_t fd, uint64_t buf, uint64_t count)
         Task::TaskManager::instance().unlock();
         return -1;
     }
-    auto bytesWritten = Filesystem::VirtualFilesystemManager::instance().write(entry->last.node, entry->last.offset, count, (void*)buf);
-    entry->last.offset += bytesWritten;
+    auto bytesWritten = Filesystem::write_file(entry->last, (char*)buf, count);
     Task::TaskManager::instance().unlock();
     return bytesWritten;
 }
@@ -167,21 +160,21 @@ uint64_t lseek_syscall(uint64_t fd, uint64_t offset, uint64_t whence)
     Task::TaskManager::instance().lock();
     auto& fileDescriptorTable = *Task::TaskManager::instance().get_current_task_pointer()->get_file_descriptor_table();
     auto entry = fileDescriptorTable.get(fd);
-    if (entry.is_end() || whence > SEEK_FROM_END)
+    if (entry.is_end() || entry->last->kind != Filesystem::OpenFile::NODE || whence > SEEK_FROM_END)
     {
         Task::TaskManager::instance().unlock();
         return -1;
     }
     int64_t base = 0;
-    if (whence == SEEK_FROM_CURRENT) { base = entry->last.offset; }
-    if (whence == SEEK_FROM_END) { base = Filesystem::VirtualFilesystemManager::instance().filelen(entry->last.node); }
+    if (whence == SEEK_FROM_CURRENT) { base = entry->last->offset; }
+    if (whence == SEEK_FROM_END) { base = Filesystem::VirtualFilesystemManager::instance().filelen(entry->last->node); }
     int64_t newOffset = base + (int64_t)offset;
     if (newOffset < 0)
     {
         Task::TaskManager::instance().unlock();
         return -1;
     }
-    entry->last.offset = newOffset;
+    entry->last->offset = newOffset;
     Task::TaskManager::instance().unlock();
     return newOffset;
 }
@@ -215,7 +208,13 @@ uint64_t fstat_syscall(uint64_t fd, uint64_t buf)
         Task::TaskManager::instance().unlock();
         return -1;
     }
-    fill_file_status(entry->last.node, (FileStatus*)buf);
+    auto status = (FileStatus*)buf;
+    if (entry->last->kind == Filesystem::OpenFile::NODE) { fill_file_status(entry->last->node, status); }
+    else
+    {
+        *status = {};
+        status->kind = entry->last->kind == Filesystem::OpenFile::CONSOLE ? 2 : 3;
+    }
     Task::TaskManager::instance().unlock();
     return 0;
 }
@@ -224,15 +223,7 @@ uint64_t fstat_syscall(uint64_t fd, uint64_t buf)
 uint64_t console_write_syscall(uint64_t buf, uint64_t count)
 {
     if (!is_user_address(buf, count)) { return -1; }
-    char text[129];
-    for (uint64_t done = 0; done < count; done += 128)
-    {
-        uint64_t length = count - done < 128 ? count - done : 128;
-        memcpy(text, (char*)buf + done, length);
-        text[length] = '\0';
-        printf(text);
-    }
-    return count;
+    return fwrite_syscall(1, buf, count);
 }
 
 uint64_t fclose_syscall(uint64_t fd)
@@ -245,14 +236,12 @@ uint64_t fclose_syscall(uint64_t fd)
         Task::TaskManager::instance().unlock();
         return -1;
     }
-    // We only have an initrd mounted at the moment, so closing a file only frees its node.
-    delete entry->last.node;
-    fileDescriptorTable.remove(fd);
+    Filesystem::close_file(fileDescriptorTable, fd);
     Task::TaskManager::instance().unlock();
     return 0;
 }
 
-// Make a new file descriptor for the same file. Each descriptor keeps its own offset, unlike on Unix, where they share one.
+// Duplicates share an open file and its offset until the last descriptor is closed.
 uint64_t dup_syscall(uint64_t fd)
 {
     Task::TaskManager::instance().lock();
@@ -263,14 +252,50 @@ uint64_t dup_syscall(uint64_t fd)
         Task::TaskManager::instance().unlock();
         return -1;
     }
-    // Closing a file descriptor frees its node, so the new descriptor needs its own copy.
-    Filesystem::taskfd taskFileDescriptor = entry->last;
-    taskFileDescriptor.node = new Filesystem::VirtualFilesystemNode(*entry->last.node);
-    auto newEntry = fileDescriptorTable.insert(taskFileDescriptor);
-    newEntry->last.fd = newEntry->first;
-    auto newFd = newEntry->first;
+    auto file = entry->last;
+    auto newFd = Filesystem::install_file(fileDescriptorTable, file);
+    if (newFd >= 0) { Filesystem::retain_file(file); }
     Task::TaskManager::instance().unlock();
-    return newFd;
+    return newFd < 0 ? -2 : newFd;
+}
+
+uint64_t dup2_syscall(uint64_t fd, uint64_t newFd)
+{
+    auto& manager = Task::TaskManager::instance();
+    manager.lock();
+    auto result = Filesystem::duplicate_file(*manager.get_current_task_pointer()->get_file_descriptor_table(), fd, newFd);
+    manager.unlock();
+    return result;
+}
+
+uint64_t pipe_syscall(uint64_t fds)
+{
+    if (!is_user_address(fds, 2 * sizeof(int))) { return -1; }
+    auto& manager = Task::TaskManager::instance();
+    manager.lock();
+    auto& table = *manager.get_current_task_pointer()->get_file_descriptor_table();
+    auto pipe = new Filesystem::Pipe();
+    auto reader = new Filesystem::OpenFile();
+    reader->kind = Filesystem::OpenFile::PIPE_READ;
+    reader->pipe = pipe;
+    auto writer = new Filesystem::OpenFile();
+    writer->kind = Filesystem::OpenFile::PIPE_WRITE;
+    writer->pipe = pipe;
+    auto readFd = Filesystem::install_file(table, reader);
+    auto writeFd = Filesystem::install_file(table, writer);
+    if (readFd < 0 || writeFd < 0)
+    {
+        if (readFd >= 0) { Filesystem::close_file(table, readFd); }
+        else { Filesystem::release_file(reader); }
+        if (writeFd >= 0) { Filesystem::close_file(table, writeFd); }
+        else { Filesystem::release_file(writer); }
+        manager.unlock();
+        return -1;
+    }
+    ((int*)fds)[0] = readFd;
+    ((int*)fds)[1] = writeFd;
+    manager.unlock();
+    return 0;
 }
 
 uint64_t exit_syscall(uint64_t exitCode)
@@ -287,6 +312,20 @@ uint64_t spawn_syscall(uint64_t path, uint64_t arguments, uint64_t environment)
     if (!file) { return -1; }
     delete file;
     return Loader::spawn_user_program((char*)path, (char*)arguments, (char*)environment);
+}
+
+uint64_t spawn_actions_syscall(uint64_t requestAddress)
+{
+    if (!is_user_address(requestAddress, sizeof(SpawnRequest))) { return -1; }
+    auto request = *(SpawnRequest*)requestAddress;
+    if (request.actionCount > MAX_SPAWN_ACTIONS || !is_user_address((uint64_t)request.actions, request.actionCount * sizeof(SpawnFileAction))
+        || !is_user_address((uint64_t)request.path, 1)
+        || (request.arguments && !is_user_address((uint64_t)request.arguments, 1))
+        || (request.environment && !is_user_address((uint64_t)request.environment, 1))) { return -1; }
+    auto file = Filesystem::VirtualFilesystemManager::instance().open_file((char*)request.path, 0);
+    if (!file) { return -1; }
+    delete file;
+    return Loader::spawn_user_program(request.path, request.arguments, request.environment, request.actions, request.actionCount);
 }
 
 // Remove a file or an empty directory.
@@ -362,9 +401,8 @@ uint64_t readdir_syscall(uint64_t path, uint64_t index, uint64_t buf)
 
 uint64_t printtoscreen_syscall(uint64_t arg1)
 {
-    char* str = (char*)arg1;
-    printf(str);
-    return 1;
+    if (!is_user_address(arg1, 1)) { return -1; }
+    return fwrite_syscall(1, arg1, strlen((char*)arg1));
 }
 
 uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6)
@@ -429,6 +467,12 @@ uint64_t Processes::syscall_handler(uint64_t arg1, uint64_t arg2, uint64_t arg3,
         return mkdir_syscall(arg1);
         case SYSCALL_DUP:
         return dup_syscall(arg1);
+        case SYSCALL_PIPE:
+        return pipe_syscall(arg1);
+        case SYSCALL_DUP2:
+        return dup2_syscall(arg1, arg2);
+        case SYSCALL_SPAWN_ACTIONS:
+        return spawn_actions_syscall(arg1);
         case 99:
         printf(arg1);
         return 0;

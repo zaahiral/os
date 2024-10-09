@@ -1,4 +1,5 @@
 #include "process/task.h"
+#include "fs/file.h"
 #include "process/taskManager.h"
 #include "cpu/tss.h"
 #include "memory/AddressSpace.h"
@@ -249,6 +250,8 @@ namespace Task
     {
         m_spinlock.acquire();
         auto task = get_current_task_pointer();
+        // Pipe peers must see the last close before anyone waits for this task.
+        Filesystem::close_files(*task->m_openFileDescriptors);
         task->m_hasExited = true;
         // Exit codes are 8 bits, as on Unix, so a wait that returns -1 can only mean the task could not be waited for.
         task->m_exitCode = exitCode & 0xFF;
@@ -298,13 +301,6 @@ namespace Task
 
         m_spinlock.acquire();
         auto task = m_scheduler->get_task_from_tid(tid);
-        // Free the nodes of files that the task did not close.
-        auto& fileDescriptorTable = *task->m_openFileDescriptors;
-        for (uint64_t fd = 0; fd < fileDescriptorTable.get_id_limit(); fd++)
-        {
-            auto entry = fileDescriptorTable.get(fd);
-            if (!entry.is_end()) { delete entry->last.node; }
-        }
         // A user-space program has its own address space, but a kernel task shares the main one.
         auto& addressSpace = task->get_tlTable();
         if (addressSpace.get_physical_address().get() != Memory::MemoryManager::instance().get_main_address_space().get_physical_address().get())
