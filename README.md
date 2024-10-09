@@ -765,9 +765,22 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    </td>
   </tr>
   <tr>
-   <td>Loads in segments 
+  <tr>
+   <td>Loads in sections 
    </td>
-   <td>Loads in program executable segments into a task’s address space. 
+   <td>Copies each section that has an address into the task's address space, and fills sections without data with zeros. 
+   </td>
+  </tr>
+  <tr>
+   <td>Arguments and environment 
+   </td>
+   <td>Copies the command line and the environment onto the top of the new program's stack, and passes <code>argc</code>, <code>argv</code> and <code>envp</code> in registers, as if <code>_start</code> had been called. 
+   </td>
+  </tr>
+  <tr>
+   <td>Thread-local storage 
+   </td>
+   <td>Copies the program's TLS segment into a block after the program and points the task's FS base at it, so compiled C and C++ code can use thread-local variables. 
    </td>
   </tr>
   <tr>
@@ -780,6 +793,66 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    <td>Syscall handler 
    </td>
    <td>Executes when <code>syscall</code> is called. Takes arguments from registers loaded by the user-space program. Calls various kernel functions to execute syscall 
+   </td>
+  </tr>
+  <tr>
+   <td>Files and directories 
+   </td>
+   <td>Opening, reading, writing and closing files, seeking, <code>stat</code>, listing directories, <code>mkdir</code>, <code>unlink</code> and <code>dup</code>. 
+   </td>
+  </tr>
+  <tr>
+   <td>Programs 
+   </td>
+   <td>Starting a program with arguments and an environment, waiting for it to exit, and exiting. 
+   </td>
+  </tr>
+  <tr>
+   <td>Memory 
+   </td>
+   <td><code>brk</code> moves the end of the program's heap, and <code>vmmap</code> maps zeroed pages from 1GiB upwards for <code>mmap</code>. 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>C Library</strong> 
+   </td>
+   <td><strong>Lets programs call C library functions instead of making system calls themselves.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>Header-only library 
+   </td>
+   <td>A small set of headers in <code>userspace/include</code> with <code>printf</code>, <code>malloc</code>, string functions and system call wrappers. The programs in <code>userspace</code> use it. 
+   </td>
+  </tr>
+  <tr>
+   <td>libcos for newlib 
+   </td>
+   <td>Gives newlib the functions it expects from an operating system, such as <code>read</code>, <code>sbrk</code> and <code>posix_spawn</code>, built on cOS system calls. Programs compiled with the cOS toolchain are linked with newlib and libcos. 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>Programs</strong> 
+   </td>
+   <td><strong>Programs in <code>initrd/bin</code> that the shells start.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>User shell 
+   </td>
+   <td><code>initrd/bin/sh</code>, which cOS starts at boot. It runs programs from <code>initrd/bin</code> with arguments, and has <code>echo</code>, <code>write</code>, <code>clear</code> and <code>exit</code> built in. 
+   </td>
+  </tr>
+  <tr>
+   <td>File utilities 
+   </td>
+   <td><code>ls</code>, <code>cat</code>, <code>wc</code> and <code>writefile</code>. 
+   </td>
+  </tr>
+  <tr>
+   <td>Native toolchain 
+   </td>
+   <td>GCC, G++, binutils and NASM built to run inside cOS, described under the Toolchain chart below. 
    </td>
   </tr>
 </table>
