@@ -1087,7 +1087,9 @@ cmake --build build --target check
 
 The runner in `tests/run.py` builds kernel variants in `build/check/source` and boots them headless. It checks VGA text, monitor registers, network captures and the desktop framebuffer, and prints one result per test ID. Each guest uses a copy of the test disk. Tests 4.11 through 4.13 run when the build is configured with `NATIVE_TOOLCHAIN`; otherwise they are reported as skipped. Test 4.13 compiles the whole kernel and can take several minutes. The networking tests use local servers on ports 1234 and 3939 and do not need Internet access.
 
-`build/check` holds the build log, `results.json`, and each test's text screens, PPM screenshots, packet capture and exception vector counts. To run selected tests, use `python3 tests/run.py --only 1.1 4.9`. The runner accepts `--output`, `--native-toolchain`, `--port` (45540 by default), and `--timeout-scale` for slower hosts.
+The last full run, with the native toolchain, passed all 47 tests. On a busy host, tests 2.5 and 2.8 have timed out while booting, and a larger `--timeout-scale` gives them more time.
+
+`build/check` holds the build log, `results.json`, and each test's text screens, PPM screenshots, packet capture and exception vector counts. To run selected tests, use `python3 tests/run.py --only 1.1 4.9`. The runner accepts `--output`, `--native-toolchain`, `--port` (45540 by default), `--jobs` for the number of parallel build jobs, and `--timeout-scale` for slower hosts.
 
 ### Processor Initialisation 
 
@@ -3003,11 +3005,15 @@ print("Lift off!");
 
 I have a few ideas on potential improvements to this project from my own reflection, which I will now discuss. 
 
-- **Graphical User Interface (GUI)**: Providing a GUI would massively improve how users interact with the operating system. Currently, there is virtually no interactivity other than loading different programs. Using modern HD graphics would be ideal, however this would require implementing graphics drivers for each graphics card and this is infeasible. Instead, implementing HD graphics for the VMWare SVGA II card, which is a virtual graphics card that is available in most virtual machines, would likely be more than sufficient for people using an educational operating system.
+- **Graphics**: The desktop only works on the Bochs VBE adapter, and not with the framebuffer that the UEFI bootloader provides. Drawing the desktop into any linear framebuffer would make it work in both cases. Supporting the VMWare SVGA II card, which is a virtual graphics card that is available in most virtual machines, would likely be more than sufficient for people using an educational operating system.
 
 - **Multiple Processors**: Modern operating systems utilise multiple processors (or cores) to execute processes or threads simultaneously as opposed to only using pre-emptive task switching. Implementing this may require a redesign of the scheduler and interrupts. However, locking primitives such as the spinlock are already functional with multiple processors, making much of the kernel and its data structures ready for multiple processors. This could be implemented with Symmetric Multiprocessing (SMP).
 
-- **Improving system calls and porting a C library**: The system calls act as an interface between the user-space and the kernel, where the user-space can request services. Increasing the number of system calls means that user-space programs can provide more functionality. For example, a common system call is the mmap call which is used to map memory. With enough system calls, a C library can be ported that abstracts the system calls, leaving user-space programs to use the standardised C library.
+- **Checking system call arguments**: System calls check that pointers from user-space are below the kernel's half of memory, but not that they are mapped. A program that passes an unmapped address can make the kernel fault. Each pointer should be checked page by page before the kernel uses it.
+
+- **Pipes and open files**: cOS has no pipes, so the output of one program cannot be sent to another, and the shell cannot redirect output to a file. Removing a file frees its data straight away, even if a program still has it open, and two descriptors from `dup` do not share an offset.
+
+- **Rebuilding GCC inside cOS**: cOS compiles its own kernel, but GCC and binutils are still built on Linux. Building them inside cOS would also need `make` and a shell that can run scripts.
 
 - **Custom installer**: The UEFI bootloader can load cOS without GRUB. An installer could prepare an EFI system partition and copy the loader, kernel and initrd onto it.
 
