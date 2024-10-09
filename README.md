@@ -552,6 +552,12 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    </td>
   </tr>
   <tr>
+   <td>Path resolution 
+   </td>
+   <td>cOS has no working directory, so every path starts at the root, with or without a leading <code>/</code>. The first part of a path selects a mounted filesystem, such as <code>disk</code>. <code>.</code> and <code>..</code> are resolved after checking that each directory before them exists. 
+   </td>
+  </tr>
+  <tr>
    <td>Filesystem driver interface 
    </td>
    <td>Provides a standard interface for opening, reading, writing, and closing files. Each function calls the function for the underlying driver. This will be implemented using virtual functions and inheritance. 
@@ -576,9 +582,27 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    </td>
   </tr>
   <tr>
-   <td><strong>FAT32 driver</strong>
+   <td><strong>FAT32 driver</strong> 
    </td>
-   <td>Reads, writes, creates and removes files and directories on the ATA disk. VFAT long name entries are checked against their short name checksum, and new long names receive unique 8.3 aliases. Removing a file also removes its long name entries. Directory operations hold the driver lock, and file access caches the last cluster reached in a chain.
+   <td><strong>Reads, writes, creates and removes files and directories on the ATA disk, which is mounted at <code>disk/</code>.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>Cluster chains 
+   </td>
+   <td>Follows and extends the chain of clusters in the File Allocation Table, and updates every copy of the table. The last cluster found is remembered, so reading or writing a file in order does not walk the chain from its start each time. 
+   </td>
+  </tr>
+  <tr>
+   <td>Directory entries 
+   </td>
+   <td>Finds, adds and removes directory entries. Each lookup and the change that follows it happen under one lock, so two tasks cannot create the same name. 
+   </td>
+  </tr>
+  <tr>
+   <td>Long file names 
+   </td>
+   <td>Reads and writes VFAT long name entries, checked against the checksum of their short name, and gives each new long name a unique 8.3 alias such as <code>TASKMA~1.CPP</code>. Names keep their case and are matched without regard to ASCII case. 
    </td>
   </tr>
 </table>
