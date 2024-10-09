@@ -5,15 +5,10 @@
 // Prints each file named in the arguments.
 int main(int argc, char** argv)
 {
-    if (argc < 2)
-    {
-        puts("Usage: cat <file>...");
-        return 1;
-    }
     int failures = 0;
-    for (int i = 1; i < argc; i++)
+    for (int i = argc > 1 ? 1 : 0; i < argc; i++)
     {
-        int64_t fd = open(argv[i]);
+        int64_t fd = i ? open(argv[i]) : 0;
         if (fd < 0)
         {
             printf("cat: no such file: %s\n", argv[i]);
@@ -21,17 +16,14 @@ int main(int argc, char** argv)
             continue;
         }
         // Read the file in pieces, as it may be larger than the buffer.
-        char buffer[257];
+        char buffer[256];
         int64_t length;
-        char last = '\n';
-        while ((length = read(fd, buffer, sizeof(buffer) - 1)) > 0)
+        while ((length = read(fd, buffer, sizeof(buffer))) > 0)
         {
-            buffer[length] = '\0';
-            printf("%s", buffer);
-            last = buffer[length - 1];
+            if (write(1, buffer, length) != length) { failures++; break; }
         }
-        if (last != '\n') { puts(""); }
-        close(fd);
+        if (length < 0) { failures++; }
+        if (i) { close(fd); }
     }
     return failures;
 }

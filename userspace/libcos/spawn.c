@@ -15,10 +15,11 @@
 
 extern char** environ;
 
-/* Programs share the keyboard and the screen, so their standard input and output cannot be redirected yet. */
 struct __posix_spawn_file_actions
 {
-    int hasRedirection;
+    struct SpawnFileAction entries[MAX_SPAWN_ACTIONS];
+    unsigned long long count;
+    int hasOpen;
 };
 
 struct __posix_spawnattr
@@ -39,22 +40,32 @@ int posix_spawn_file_actions_destroy(posix_spawn_file_actions_t* actions)
     return 0;
 }
 
+static int add_action(posix_spawn_file_actions_t* actions, int operation, int fd, int newFd)
+{
+    if (fd < 0 || fd >= MAX_FILE_DESCRIPTORS || newFd < 0 || newFd >= MAX_FILE_DESCRIPTORS) { return EBADF; }
+    if ((*actions)->count == MAX_SPAWN_ACTIONS) { return ENOMEM; }
+    struct SpawnFileAction* action = &(*actions)->entries[(*actions)->count++];
+    action->operation = operation;
+    action->fd = fd;
+    action->newFd = newFd;
+    return 0;
+}
+
 int posix_spawn_file_actions_adddup2(posix_spawn_file_actions_t* actions, int fd, int newFd)
 {
-    (*actions)->hasRedirection = 1;
-    return 0;
+    return add_action(actions, SPAWN_DUP2, fd, newFd);
 }
 
+/* Opening files as a spawn action is still unsupported. Open a file in the parent and adddup2 it instead. */
 int posix_spawn_file_actions_addopen(posix_spawn_file_actions_t* actions, int fd, const char* path, int flags, mode_t mode)
 {
-    (*actions)->hasRedirection = 1;
+    (*actions)->hasOpen = 1;
     return 0;
 }
 
-/* A new program does not get its parent's open files, so a file the parent asks to close is closed already. */
 int posix_spawn_file_actions_addclose(posix_spawn_file_actions_t* actions, int fd)
 {
-    return 0;
+    return add_action(actions, SPAWN_CLOSE, fd, 0);
 }
 
 int posix_spawnattr_init(posix_spawnattr_t* attributes)
@@ -119,15 +130,21 @@ static int join_environment(char* const envp[], char* environment)
 int posix_spawn(pid_t* pid, const char* path, const posix_spawn_file_actions_t* actions, const posix_spawnattr_t* attributes,
                 char* const argv[], char* const envp[])
 {
-    if (actions && *actions && (*actions)->hasRedirection) { return ENOTSUP; }
+    if (actions && *actions && (*actions)->hasOpen) { return ENOTSUP; }
     char arguments[MAX_COMMAND_LINE_LENGTH];
     char environment[MAX_ENVIRONMENT_LENGTH];
     int error = join_arguments(path, argv, arguments);
     if (!error) { error = join_environment(envp, environment); }
     if (error) { return error; }
 
-    long tid = cos_syscall(SYSCALL_SPAWN, (long)path, (long)arguments, (long)environment);
-    if (tid < 0) { return ENOENT; }
+    struct SpawnRequest request = {path, arguments, environment, NULL, 0};
+    if (actions && *actions)
+    {
+        request.actions = (*actions)->entries;
+        request.actionCount = (*actions)->count;
+    }
+    long tid = cos_syscall(SYSCALL_SPAWN_ACTIONS, (long)&request, 0, 0);
+    if (tid < 0) { return tid == -2 ? EBADF : ENOENT; }
     if (pid) { *pid = tid; }
     return 0;
 }

@@ -6,7 +6,9 @@
 // Prints a string with the system call interface.
 void print(const char* text)
 {
-    syscall(SYSCALL_DPRINTF, (uint64_t)text);
+    uint64_t length = 0;
+    while (text[length]) { length++; }
+    syscall(SYSCALL_FWRITE, 1, (uint64_t)text, length);
 }
 
 // Prints a number in base 10, or base 16 with a 0x prefix.

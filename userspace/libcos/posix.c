@@ -30,8 +30,7 @@ mode_t umask(mode_t mask)
     return 0;
 }
 
-/* Files are not shared with other programs and are never closed on exec, so the only flags are the access mode
-   and appending, which can only be set when a file is opened. Reads and writes always block. */
+/* Descriptors are inherited by spawned programs. Close-on-exec and nonblocking I/O are not supported. */
 int fcntl(int fd, int command, ...)
 {
     struct stat st;

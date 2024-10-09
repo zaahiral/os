@@ -16,7 +16,7 @@ struct PrintBuffer
     void flush()
     {
         text[length] = '\0';
-        syscall(SYSCALL_DPRINTF, (uint64_t)text);
+        syscall(SYSCALL_FWRITE, 1, (uint64_t)text, length);
         length = 0;
     }
 
@@ -113,8 +113,8 @@ int printf(const char* format, ...)
 
 int puts(const char* text)
 {
-    syscall(SYSCALL_DPRINTF, (uint64_t)text);
-    syscall(SYSCALL_DPRINTF, (uint64_t)"\n");
+    syscall(SYSCALL_FWRITE, 1, (uint64_t)text, strlen(text));
+    syscall(SYSCALL_FWRITE, 1, (uint64_t)"\n", 1);
     return 0;
 }
 

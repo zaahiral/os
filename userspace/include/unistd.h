@@ -3,11 +3,20 @@
 
 #include "process/syscall.h"
 
-// Wrappers for the file and process system calls. Each returns -1 if the system call fails.
+// Wrappers for the file and process system calls. Each returns a negative value if the system call fails.
 
 int64_t open(const char* path, uint64_t flags = 0) { return syscall(SYSCALL_FOPEN, (uint64_t)path, flags); }
 int64_t read(int64_t fd, void* buffer, uint64_t count) { return syscall(SYSCALL_FREAD, fd, (uint64_t)buffer, count); }
 int64_t write(int64_t fd, const void* buffer, uint64_t count) { return syscall(SYSCALL_FWRITE, fd, (uint64_t)buffer, count); }
+int64_t dup(int64_t fd) { return syscall(SYSCALL_DUP, fd); }
+int64_t dup2(int64_t fd, int64_t newFd) { return syscall(SYSCALL_DUP2, fd, newFd); }
+int64_t pipe(int fds[2]) { return syscall(SYSCALL_PIPE, (uint64_t)fds); }
+int64_t fstat(int64_t fd, FileStatus* status) { return syscall(SYSCALL_FSTAT, fd, (uint64_t)status); }
+bool isatty(int64_t fd)
+{
+    FileStatus status;
+    return !fstat(fd, &status) && status.kind == 2;
+}
 int64_t close(int64_t fd) { return syscall(SYSCALL_FCLOSE, fd); }
 
 // List the entry at an index in a directory. Returns 1 for a file, 2 for a directory, or 0 past the last entry.
