@@ -118,27 +118,25 @@ cp build/selfhost.img build/selfhost-run.img
 qemu-system-x86_64 -m 1G -cdrom build/cOS.iso -boot d -nic user,model=pcnet -drive file=build/selfhost-run.img,format=raw,if=ide
 ```
 
-Inside cOS, compile the build runner and run the command list:
+Inside cOS, compile the build runner and give it the list of commands. The whole build takes about ten minutes in QEMU:
 
 ```
 $ gcc disk/build.c -o disk/build
 $ disk/build disk/build.txt
 ```
 
-After `Build complete`, close QEMU and package the kernel on the host:
+After `Build complete`, close QEMU. The `selfhost-iso` target copies `kernel.bin` off the disk and makes a GRUB image from it, which boots like the normal one. `SELFHOST_BUILT_DISK` chooses a different built disk image.
 
 ```
 cmake --build build --target selfhost-iso
 qemu-system-x86_64 -m 1G -cdrom build/selfhost.iso -boot d -nic user,model=pcnet -drive file=build/selfhost-run.img,format=raw,if=ide
 ```
 
-`toolchain/selfhost-disk.py` stages the sources, headers, response files and command list on a separate 64MiB FAT32 image. The small C runner uses `posix_spawnp` and `waitpid`, prints each command, and stops at the first failure. GCC compiles every kernel C++ source, NASM assembles every kernel assembly source, and ld writes `disk/kernel.bin`. The `selfhost-iso` target extracts that file with mtools and packages it with GRUB. `SELFHOST_BUILT_DISK` selects a different completed disk image.
-
 ## Project Specification
 
 These are checkboxes, but I will probably only review these guidelines at the end to check them off, rather than iteratively during the project. These are mostly for my own reference.
 
-_Edit: Quoted items are my evaluation of this completed checklist, with links to evidence._
+_Edit: Quoted items are my evaluation of this completed checklist, with links to evidence. The items about UEFI, the disk, the shells, the C library and the toolchain were added after the original checklist, as the project grew._
 
 ### cOS Kernel
 
@@ -147,6 +145,10 @@ _Edit: Quoted items are my evaluation of this completed checklist, with links to
   - [x] - The kernel is bootable by any Multiboot-2 compliant bootloader.
 
   > The kernel boots successfully across different virtualisation software. As a result, it should also work on physical hardware, although I have not tested this. This is also demonstrated in testing by test 1.1.
+
+- [x] - The kernel boots from its own UEFI bootloader.
+
+  > `BOOTX64.EFI` loads the kernel and the initrd, builds the same Multiboot 2 information that GRUB provides, and enters a 64-bit entry point in the kernel. Test 1.10 boots it with OVMF. I have only tested it in QEMU.
   
 - [x] - The kernel can parse a Multiboot-2 header.
 
@@ -211,6 +213,10 @@ _Edit: Quoted items are my evaluation of this completed checklist, with links to
 
 > Filesystem drivers only need to provide a single interface to be mountable in the virtual filesystem. This also means that drivers for other operating systems can easily be ported and executed. 
 
+- [x] - The layer provides a driver for a writable FAT32 disk.
+
+> The FAT32 driver reads, writes, creates and removes files and directories on an ATA disk, including VFAT long file names. Files written by cOS can be read on the host with mtools, and files copied onto the disk on the host can be read in cOS, as tests 2.7 to 2.9 show. Removing a file that a program still has open frees its data straight away, unlike on Unix.
+
 ### cOS networking layer
 
 - [x] - The kernel can provide networking services.
@@ -235,7 +241,51 @@ _Edit: Quoted items are my evaluation of this completed checklist, with links to
 
 - [x] - The kernel provides a system calls interface to send data to the kernel.
 
-> This uses the built-in `syscall` instruction, storing arguments in registers. This is very fast as it avoids some of the overhead of interrupts. Currently there are not many system calls available. Care must be taken to ensure all data coming from user-space is treated as untrustworthy and scrutinised with defensive programming.
+> This uses the built-in `syscall` instruction, storing arguments in registers. This is very fast as it avoids some of the overhead of interrupts. There are now 27 system calls, covering files, directories, programs, memory and events. Care must be taken to ensure all data coming from user-space is treated as untrustworthy and scrutinised with defensive programming. Pointers are checked to be below the kernel's half of memory, but not yet checked to be mapped.
+
+- [x] - The kernel can start, wait for and clean up after user-space programs.
+
+> Programs are started with arguments and an environment, and the program that started them collects the exit code. The kernel frees an exited program's memory, kernel stack, files and event descriptors. Test 4.8 runs programs repeatedly and checks that free memory does not drop.
+
+- [x] - User-space programs can allocate memory.
+
+> `brk` and `mmap` are implemented, and a program that accesses memory it does not own is stopped without affecting the kernel, as test 4.9 shows.
+
+- [x] - A C library is available to user-space programs.
+
+> Programs compiled with the cOS toolchain use newlib, with libcos providing the operating system functions it needs, such as files, directories, `posix_spawn` and `waitpid`. Test 4.11 compiles and runs a C program that uses it. The programs in `userspace` use a smaller header-only library instead.
+
+- [x] - Programs can use thread-local storage.
+
+> The ELF loader copies a program's TLS segment and sets the FS base for each task. binutils uses thread-local variables, so the assembler running in test 4.11 depends on this.
+
+### cOS shell and scripting
+
+- [x] - The operating system provides a shell.
+
+> cOS boots into a shell that is an ordinary user-space program, as in tests 5.1 and 5.7. It runs programs from `initrd/bin` with arguments. The kernel has its own shell as well, with commands for memory, PCI devices, networking, scripts and the desktop.
+
+- [x] - The operating system can run scripts.
+
+> cScript has variables, functions, recursion, `if` and `while`, and reports errors with their line number. Tests 5.3 to 5.6 run scripts from the initrd and stop a running script with Escape.
+
+- [x] - The operating system has a graphical desktop.
+
+> The `gui` command draws a desktop with windows on the Bochs VBE adapter, as in test 5.2. It only works on that adapter, so it is not available when booting with UEFI.
+
+### cOS toolchain
+
+- [x] - Programs can be compiled for cOS with its own toolchain.
+
+> binutils and GCC are patched for an `x86_64-cos` target, and newlib is connected to the cOS system calls by libcos. The build scripts in `toolchain` build all of it from source.
+
+- [x] - cOS can compile C and C++ programs inside itself.
+
+> GCC, G++, binutils and NASM are built to run inside cOS. Tests 4.11 and 4.12 compile a C program, a freestanding C++20 program and a kernel assembly file inside cOS. The C++ program and the assembled object are byte for byte identical to the ones built on the host.
+
+- [x] - cOS can compile its own kernel.
+
+> Test 4.13 compiles every kernel source inside cOS, links the kernel, and boots it to the shell. GCC itself is not yet rebuilt inside cOS, which would also need `make` and a shell that runs scripts.
 
 ## Design
 
