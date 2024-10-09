@@ -1,5 +1,5 @@
 %!TEX program = xelatex
-% Hierarchy charts for the README. Build with ./build.sh, which writes one SVG per diagram.
+% Hierarchy charts for the README. Build with ./build.sh, which writes a light and a dark SVG per diagram.
 \documentclass[border=14pt, multi=diagram, varwidth=40cm]{standalone}
 
 \usepackage{fontspec}
@@ -7,11 +7,22 @@
 \setmonofont{Courier}[Scale=0.88]
 
 \usepackage{xcolor}
-\pagecolor{white}
-% The same greys as the shaded code blocks in the notes.
-\definecolor{shadeA}{RGB}{233,233,233}
-\definecolor{shadeB}{RGB}{204,204,204}
-\definecolor{rule}{RGB}{90,90,90}
+% build.sh defines \darkcharts for the second build, which uses the colours of GitHub's dark theme.
+\ifdefined\darkcharts
+  \definecolor{page}{HTML}{0D1117}
+  \definecolor{ink}{HTML}{E6EDF3}
+  \definecolor{shadeA}{HTML}{21262D}
+  \definecolor{shadeB}{HTML}{30363D}
+  \definecolor{rule}{HTML}{8B949E}
+\else
+  % The same greys as the shaded code blocks in the notes.
+  \definecolor{page}{RGB}{255,255,255}
+  \definecolor{ink}{RGB}{0,0,0}
+  \definecolor{shadeA}{RGB}{233,233,233}
+  \definecolor{shadeB}{RGB}{204,204,204}
+  \definecolor{rule}{RGB}{90,90,90}
+\fi
+\pagecolor{page}
 
 % Labels wrap between words, never inside them.
 \hyphenpenalty=10000
@@ -48,7 +59,7 @@
 % \fork{from}{to} draws the horizontal line joining the root to each branch.
 \newcommand{\fork}[2]{\draw (root.south) -- ++(0, -0.55) (#1, -1) -- (#2, -1);}
 
-\newenvironment{diagram}{\centering}{}
+\newenvironment{diagram}{\centering\color{ink}}{}
 
 \begin{document}
 
