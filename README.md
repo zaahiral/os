@@ -72,16 +72,14 @@ cOS has its own GCC toolchain for the `x86_64-cos` target. Three scripts build i
 ```
 toolchain/build-cos-toolchain.sh <work directory> <install prefix> [jobs]
 toolchain/build-cos-newlib.sh <work directory> <install prefix> [jobs]
-x86_64-cos-gcc -O2 program.c -o program
-```
-
-`toolchain/build-cos-native.sh` builds GCC with C and C++ support, GNU binutils and NASM 3.02 to run inside cOS. The C++ install includes freestanding libstdc++ headers and `libsupc++`, without the hosted C++ library. Run it on Linux after the two scripts above, with the same work directory and install prefix. It puts the compiler, headers and libraries in `<output directory>/initrd`:
-
-```
 toolchain/build-cos-native.sh <work directory> <install prefix> <output directory> [jobs]
 ```
 
-Give that output directory to CMake to include the compiler in the initrd. QEMU uses 1GiB of memory:
+The first builds binutils 2.42 and GCC 14.2 from the patches in `toolchain/patches`, and takes about 15 minutes with 16 cores. The second builds the newlib C library with libcos, which connects newlib to the cOS system calls, and then libgcc and libstdc++. Ordinary C programs can then be compiled for cOS with `x86_64-cos-gcc -O2 program.c -o program`. The third builds GCC, G++, binutils and NASM to run inside cOS, and puts them in `<output directory>/initrd`. It takes longer, as it also builds GMP, MPFR and MPC.
+
+### Compiling programs inside cOS
+
+Give the native toolchain's output directory to CMake to add it to the initrd:
 
 ```
 cmake -B build -DNATIVE_TOOLCHAIN=<output directory>
@@ -89,23 +87,18 @@ cmake --build build
 cmake --build build --target run
 ```
 
-The user shell can then compile the example on the disk and run it. Temporary files are written to `/disk`:
+The disk has a C example, and a freestanding C++20 example with a response file of compiler options. The shell can compile and run both. Temporary files are written to `/disk`.
 
 ```
 $ gcc disk/hello.c -o disk/hello
 $ disk/hello one two
 Hello from a program compiled on cOS, with 3 arguments.
-```
-
-The disk also has a freestanding C++20 example. Its response file supplies the same freestanding and linking options as the user-space programs:
-
-```
 $ g++ @disk/cxx.rsp
 $ disk/cxx
 Hello from C++ compiled on cOS!
 ```
 
-NASM can assemble the kernel's assembly sources. Copy a source onto the disk on the host, then assemble it in cOS:
+NASM assembles the kernel's assembly sources. Copy one onto the disk on the host first:
 
 ```
 mcopy -o -i build/disk.img src/x86_64/task/task.asm ::task.asm
@@ -115,7 +108,9 @@ mcopy -o -i build/disk.img src/x86_64/task/task.asm ::task.asm
 $ nasm -f elf64 disk/task.asm -o disk/task.o
 ```
 
-The optional source disk lets cOS compile its own kernel with the same compiler flags and linker script as CMake. Configure `NATIVE_TOOLCHAIN` as above, then prepare and boot a copy of the source disk:
+### Building cOS inside cOS
+
+With `NATIVE_TOOLCHAIN` set, cOS can compile its own kernel with the same compiler flags and linker script as CMake. The `selfhost-disk` target writes the kernel sources to a separate disk image. Boot cOS with a copy of it:
 
 ```
 cmake --build build --target selfhost-disk
