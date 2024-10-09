@@ -857,6 +857,222 @@ We show hierarchy charts for each part of the operating system, followed by a ta
   </tr>
 </table>
 
+### Shell and Desktop
+
+<p align="center">
+<img width="640" alt="Hierarchy chart of the shells, the desktop and cScript." src="docs/diagrams/shell.svg">
+</p>
+
+<table>
+  <tr>
+   <td colspan="2" ><strong>Shell and Desktop</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>Module</strong> 
+   </td>
+   <td><strong>Function</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>Kernel shell</strong> 
+   </td>
+   <td><strong>A command line built into the kernel. cOS starts the user shell from it, and returns to it when the user shell exits.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>Built-in commands 
+   </td>
+   <td><code>ls</code>, <code>cat</code>, <code>write</code>, <code>uptime</code>, <code>mem</code>, <code>pci</code>, <code>net</code>, <code>arp</code>, <code>gui</code>, <code>run</code>, <code>cs</code> and <code>reboot</code>, which <code>help</code> lists. 
+   </td>
+  </tr>
+  <tr>
+   <td>Program launching 
+   </td>
+   <td><code>exec</code> starts a program from <code>initrd/bin</code> as a user-space task and prints its exit code. 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>User shell</strong> 
+   </td>
+   <td><strong>A user-space program that reads commands from the keyboard.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>Reading commands 
+   </td>
+   <td>Reads key events from the keyboard event sender and echoes them. Lines are up to 76 characters, and Backspace and Shift work. 
+   </td>
+  </tr>
+  <tr>
+   <td>Program launching 
+   </td>
+   <td>Starts the named program with the spawn system call and waits for its exit code. 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>Desktop</strong> 
+   </td>
+   <td><strong>A graphical desktop drawn by the kernel, opened with <code>gui</code>.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>Framebuffer drawing 
+   </td>
+   <td>Draws rectangles, lines and text into the Bochs VBE framebuffer. 
+   </td>
+  </tr>
+  <tr>
+   <td>Windows 
+   </td>
+   <td>Draws windows with title bars: an About window, the list of PCI devices and a wireframe cube. Escape returns to the shell. 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>cScript</strong> 
+   </td>
+   <td><strong>A small scripting language interpreted by the kernel. <code>run</code> executes a script file and <code>cs</code> runs a single line.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>Lexer 
+   </td>
+   <td>Splits the source text into tokens such as numbers, strings, names, keywords and operators. 
+   </td>
+  </tr>
+  <tr>
+   <td>Parser 
+   </td>
+   <td>Builds a tree of expressions and statements from the tokens: variables, functions with parameters, <code>if</code>, <code>while</code> and <code>return</code>. 
+   </td>
+  </tr>
+  <tr>
+   <td>Interpreter 
+   </td>
+   <td>Walks the tree, keeps variables and calls functions, including the built-in <code>print</code>, <code>uptime</code>, <code>sleep</code>, <code>length</code> and <code>read</code>. 
+   </td>
+  </tr>
+</table>
+
+### Toolchain
+
+<p align="center">
+<img width="640" alt="Hierarchy chart of the cOS toolchain." src="docs/diagrams/toolchain.svg">
+</p>
+
+<table>
+  <tr>
+   <td colspan="2" ><strong>Toolchain</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>Module</strong> 
+   </td>
+   <td><strong>Function</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>Cross compiler</strong> 
+   </td>
+   <td><strong>Builds programs for cOS on a Linux machine.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>binutils 2.42 
+   </td>
+   <td>The GNU assembler and linker, patched to know the <code>x86_64-cos</code> target. 
+   </td>
+  </tr>
+  <tr>
+   <td>GCC 14.2 
+   </td>
+   <td>The C and C++ compilers. The patch adds <code>gcc/config/cos.h</code>, which links programs statically with newlib, libcos and libgcc, and runs <code>ld</code> directly. 
+   </td>
+  </tr>
+  <tr>
+   <td>x86_64-cos target 
+   </td>
+   <td>The target name in <code>config.sub</code> and the other configuration files, which lets the GNU build system configure programs for cOS. 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>C library</strong> 
+   </td>
+   <td><strong>The C library that programs built with the toolchain use.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>newlib 
+   </td>
+   <td>Version 4.4, patched to declare <code>lstat</code> and a directory format for cOS. 
+   </td>
+  </tr>
+  <tr>
+   <td>libcos 
+   </td>
+   <td>The system call layer described in the user-space table, along with the program start code in <code>crt0</code>. 
+   </td>
+  </tr>
+  <tr>
+   <td>libgcc and libstdc++ 
+   </td>
+   <td>GCC's support library and the C++ library, which are built once newlib's headers are installed. 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>Native toolchain</strong> 
+   </td>
+   <td><strong>The same tools built to run inside cOS, and added to the initrd with <code>-DNATIVE_TOOLCHAIN</code>.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>GCC and G++ 
+   </td>
+   <td>Built as a Canadian cross: compiled on Linux, running on cOS, and producing programs for cOS. 
+   </td>
+  </tr>
+  <tr>
+   <td>binutils 
+   </td>
+   <td><code>as</code>, <code>ld</code> and <code>ar</code>. 
+   </td>
+  </tr>
+  <tr>
+   <td>NASM 
+   </td>
+   <td>Version 3.02, which assembles the kernel's assembly sources. 
+   </td>
+  </tr>
+  <tr>
+   <td><strong>Self-hosted build</strong> 
+   </td>
+   <td><strong>Builds the cOS kernel inside cOS.</strong> 
+   </td>
+  </tr>
+  <tr>
+   <td>Source disk 
+   </td>
+   <td><code>toolchain/selfhost-disk.py</code> writes the kernel sources, headers, response files and a list of commands to a separate FAT32 image. 
+   </td>
+  </tr>
+  <tr>
+   <td>Build runner 
+   </td>
+   <td><code>toolchain/selfbuild.c</code> is compiled inside cOS. It runs each command with <code>posix_spawnp</code> and <code>waitpid</code>, and stops at the first failure. 
+   </td>
+  </tr>
+  <tr>
+   <td>Kernel image 
+   </td>
+   <td>ld links <code>disk/kernel.bin</code> with the kernel's linker script. The <code>selfhost-iso</code> target copies it out with mtools and makes a GRUB image, which boots to the shell. 
+   </td>
+  </tr>
+</table>
+
+<p align="center">
+<img width="700" alt="The self-hosted build: the kernel sources on the source disk are compiled and linked inside cOS, and the resulting kernel.bin boots from a GRUB image." src="docs/diagrams/selfhost.svg">
+</p>
+
 ## Testing
 
 I will test using white-box testing, as black-box testing would not be appropriate for the kernel. Instead, code segments are run in the kernel or as processes. 
