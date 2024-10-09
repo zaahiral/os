@@ -295,6 +295,8 @@ My project will be to create an operating system (cOS) that runs on modern hardw
 - The filesystem layer that is responsible for providing a virtual filesystem interface for processes to access files in a concrete filesystem agnostic manner.
 - The networking layer that is responsible for managing network operations and sockets by interfacing with the network card driver and managing various networking protocol stacks.
 - The user-space in which most user programs execute with C Library support. This is separated from the kernel using the protection mechanisms provided by the processor.
+- The shells, the desktop and the cScript interpreter, which let a user work with the operating system.
+- The toolchain, which builds programs for cOS and also runs inside it.
 
 ### Target Architecture
 
@@ -303,7 +305,7 @@ The instruction set architecture which generally defines how software controls t
 ### Cross Compilation
 
 The default system compilers make assumptions about the host machine (the machine that the program will run on), such as whether it has support for dynamic loading and whether it is freestanding. As a result, we must compile our own cross-compiler.
-A cross-compiler is a compiler where the target machine (the machine that the binaries will execute on) is different from the host machine (the machine that runs the compiler). Our target machine will be running cOS, however we do not have a compiler that runs on cOS! We make a generic cross-compiler that targets a generic x86-64 machine with no operating system in order to build our operating system. We use `gcc` as our compiler, and our target is `x86_64-elf` (we can eventually create our own toolchain and our target will be `x86_64-cos`). We will also build this using a Docker container, as this allows our build process to be easily reproducible by anyone. A deep dive into the build process is beyond the scope of this documentation.
+A cross-compiler is a compiler where the target machine (the machine that the binaries will execute on) is different from the host machine (the machine that runs the compiler). Our target machine will be running cOS, however we do not have a compiler that runs on cOS! We make a generic cross-compiler that targets a generic x86-64 machine with no operating system in order to build our operating system. We use `gcc` as our compiler, and our target is `x86_64-elf`. Later in the project we created our own toolchain for the `x86_64-cos` target, which is described under the toolchain chart below. We will also build this using a Docker container, as this allows our build process to be easily reproducible by anyone. A deep dive into the build process is beyond the scope of this documentation.
 
 ### Hierarchy Charts
 
@@ -440,6 +442,18 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    </td>
   </tr>
   <tr>
+   <td>ATA disk 
+   </td>
+   <td>Reads and writes 512-byte sectors on the first ATA disk using programmed I/O. The FAT32 driver uses it to mount the disk at <code>disk/</code>. 
+   </td>
+  </tr>
+  <tr>
+   <td>Bochs VBE graphics 
+   </td>
+   <td>Switches the Bochs and QEMU display adapter to a 1024x768 linear framebuffer for the desktop. The VGA registers and font are saved first, so text mode can be restored afterwards. 
+   </td>
+  </tr>
+  <tr>
    <td><strong>Events</strong> 
    </td>
    <td><strong>The Events system allows for tasks to register to receive messages from event senders. </strong> 
@@ -488,9 +502,21 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    </td>
   </tr>
   <tr>
+   <td>Processor state 
+   </td>
+   <td>Each task has its own SSE and floating point registers, which are saved with <code>fxsave</code> only when a different task needs them. Each task also has its own FS base, which points to its thread-local variables. 
+   </td>
+  </tr>
+  <tr>
    <td>Synchronisation 
    </td>
    <td>Provides synchronisation primitives. This includes a spinlock, which disables interrupts and busy-waits if the lock is acquired. Also provides a mutex that blocks a task if it is already acquired and adds it to a wait queue that is awoken when the mutex is released. 
+   </td>
+  </tr>
+  <tr>
+   <td>Exit and reaping 
+   </td>
+   <td>A task that exits wakes the task waiting for it. The waiting task collects the exit code and frees the exited task's address space, kernel stack, open files and event descriptors. 
    </td>
   </tr>
 </table>
