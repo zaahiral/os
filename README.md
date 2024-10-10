@@ -939,6 +939,12 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    </td>
   </tr>
   <tr>
+   <td>Pipes and redirection 
+   </td>
+   <td>Runs up to 16 programs connected by <code>|</code>, and redirects a program's input with <code>&lt;</code> and its output with <code>&gt;</code> or <code>&gt;&gt;</code>. Quoting and <code>2&gt;</code> are not supported. 
+   </td>
+  </tr>
+  <tr>
    <td>Program launching 
    </td>
    <td>Starts the named program with the spawn system call and waits for its exit code. 
@@ -1125,9 +1131,9 @@ Run the numbered tests below with Python 3, QEMU and the build tools listed abov
 cmake --build build --target check
 ```
 
-The runner in `tests/run.py` builds kernel variants in `build/check/source` and boots them headless. It checks VGA text, monitor registers, network captures and the desktop framebuffer, and prints one result per test ID. Each guest uses a copy of the test disk. Tests 4.11 through 4.13 run when the build is configured with `NATIVE_TOOLCHAIN`; otherwise they are reported as skipped. Test 4.13 compiles the whole kernel and can take several minutes. The networking tests use local servers on ports 1234 and 3939 and do not need Internet access.
+The runner in `tests/run.py` builds kernel variants in `build/check/source` and boots them headless. It checks VGA text, monitor registers, network captures and the desktop framebuffer, and prints one result per test ID. Each guest uses a copy of the test disk. Tests 4.11 to 4.13 and 4.15 run when the build is configured with `NATIVE_TOOLCHAIN`; otherwise they are reported as skipped. Test 4.13 compiles the whole kernel and can take several minutes. The networking tests use local servers on ports 1234 and 3939 and do not need Internet access.
 
-The last full run, with the native toolchain, passed all 47 tests. On a busy host, tests 2.5 and 2.8 have timed out while booting, and a larger `--timeout-scale` gives them more time.
+The last full run, with the native toolchain, passed all 49 tests. On a busy host, tests 2.5 and 2.8 have timed out while booting, and a larger `--timeout-scale` gives them more time.
 
 `build/check` holds the build log, `results.json`, and each test's text screens, PPM screenshots, packet capture and exception vector counts. To run selected tests, use `python3 tests/run.py --only 1.1 4.9`. The runner accepts `--output`, `--native-toolchain`, `--port` (45540 by default), `--jobs` for the number of parallel build jobs, and `--timeout-scale` for slower hosts.
 
@@ -1507,6 +1513,22 @@ To test networking, I will use QEMU’s command line to save a dump of network c
    <td>cOS can build its own kernel. The native compiler builds the C runner, which compiles every kernel C++ and assembly source and links <code>disk/kernel.bin</code>. The host extracts it with mtools, makes a GRUB ISO and boots it in a second QEMU guest.
    </td>
    <td>All build commands succeed, and the kernel built inside cOS reaches the user shell and runs <code>echo self-hosted kernel</code>.
+   </td>
+  </tr>
+  <tr>
+   <td>4.14
+   </td>
+   <td>The shell connects programs with pipes and redirects their input and output. This is tested by running <code>ls initrd/bin | wc</code>, <code>cat initrd/hello.txt &gt; disk/out.txt</code>, <code>echo again &gt;&gt; disk/out.txt</code>, <code>wc &lt; initrd/hello.txt</code> and a three-stage pipeline, and by reading the files on the host.
+   </td>
+   <td>Each command prints the expected output, the files on the disk hold the expected bytes, and malformed commands are rejected without stopping the shell.
+   </td>
+  </tr>
+  <tr>
+   <td>4.15
+   </td>
+   <td>A C program compiled inside cOS uses <code>pipe</code>, <code>dup2</code> and <code>posix_spawn</code> file actions. This is tested by compiling <code>tests/programs/pipe.c</code>, copied to the disk, with gcc inside cOS and running it.
+   </td>
+   <td>The program reads its child's output through a pipe, sees end of file and <code>EPIPE</code> when it should, and reports that every check passed.
    </td>
   </tr>
 </table>
