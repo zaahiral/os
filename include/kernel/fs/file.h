@@ -19,6 +19,8 @@ namespace Filesystem
         Common::DoublyLinkedList<uint64_t> writeWaiters;
     };
 
+    struct ConsoleInput;
+
     struct OpenFile
     {
         enum Kind { NODE, CONSOLE, PIPE_READ, PIPE_WRITE };
@@ -28,14 +30,11 @@ namespace Filesystem
         uint64_t offset = 0;
         bool append = false;
         Pipe* pipe = nullptr;
-        bool consoleReading = false;
-        Common::DoublyLinkedList<uint64_t> consoleWaiters;
-        char line[128];
-        uint64_t lineLength = 0;
-        uint64_t lineOffset = 0;
+        ConsoleInput* console = nullptr;
     };
 
     // File operations run with the task manager lock held, including the check before a pipe sleeps.
+    OpenFile* open_console();
     int64_t install_file(Task::FileDescriptorTable& table, OpenFile* file);
     void retain_file(OpenFile* file);
     void release_file(OpenFile* file);

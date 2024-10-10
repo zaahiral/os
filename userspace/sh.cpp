@@ -31,15 +31,22 @@ uint64_t string_length(const char* text)
 bool read_line(char* line)
 {
     uint64_t length = 0;
+    bool overflow = false;
     char c;
     int64_t result;
     while ((result = read(0, &c, 1)) > 0)
     {
         if (c == '\n') { break; }
         if (length < MAX_LINE_LENGTH) { line[length++] = c; }
+        else { overflow = true; }
+    }
+    if (overflow)
+    {
+        print("Command line too long.\n");
+        length = 0;
     }
     line[length] = '\0';
-    return result > 0 || length;
+    return result > 0 || length || overflow;
 }
 
 void help_command()
@@ -128,6 +135,15 @@ struct Command
     int64_t outputFd = -1;
 };
 
+// Temporary descriptors must survive the child's dup2 actions without occupying their targets.
+int64_t move_temporary_fd(int64_t fd)
+{
+    if (fd < 0 || fd > 2) { return fd; }
+    auto copy = move_temporary_fd(dup(fd));
+    close(fd);
+    return copy;
+}
+
 // Operators are tokens even without surrounding spaces. File names and arguments cannot contain spaces.
 bool run_pipeline(char* line)
 {
@@ -190,18 +206,21 @@ bool run_pipeline(char* line)
     for (; pipeCount + 1 < commandCount; pipeCount++)
     {
         if (pipe(pipes[pipeCount]) < 0) { isValid = false; break; }
+        pipes[pipeCount][0] = move_temporary_fd(pipes[pipeCount][0]);
+        pipes[pipeCount][1] = move_temporary_fd(pipes[pipeCount][1]);
+        if (pipes[pipeCount][0] < 0 || pipes[pipeCount][1] < 0) { pipeCount++; isValid = false; break; }
     }
     for (uint64_t i = 0; i < commandCount && isValid; i++)
     {
         auto& command = commands[i];
         if (command.input[0])
         {
-            command.inputFd = open(command.input);
+            command.inputFd = move_temporary_fd(open(command.input));
             if (command.inputFd < 0) { isValid = false; }
         }
         if (command.output[0])
         {
-            command.outputFd = open(command.output, FILE_CREATE | (command.append ? FILE_APPEND : FILE_TRUNCATE));
+            command.outputFd = move_temporary_fd(open(command.output, FILE_CREATE | (command.append ? FILE_APPEND : FILE_TRUNCATE)));
             if (command.outputFd < 0) { isValid = false; }
         }
     }
@@ -215,9 +234,12 @@ bool run_pipeline(char* line)
         if (*arguments) { *arguments++ = '\0'; }
         if (commandCount == 1)
         {
-            auto input = dup(0);
-            auto output = dup(1);
-            if (input < 0 || output < 0)
+            FileStatus status;
+            bool hasInput = !fstat(0, &status);
+            bool hasOutput = !fstat(1, &status);
+            auto input = hasInput ? move_temporary_fd(dup(0)) : -1;
+            auto output = hasOutput ? move_temporary_fd(dup(1)) : -1;
+            if ((hasInput && input < 0) || (hasOutput && output < 0))
             {
                 if (input >= 0) { close(input); }
                 if (output >= 0) { close(output); }
@@ -227,10 +249,10 @@ bool run_pipeline(char* line)
             if (command.inputFd >= 0) { dup2(command.inputFd, 0); }
             if (command.outputFd >= 0) { dup2(command.outputFd, 1); }
             bool isBuiltin = run_builtin(command.text, arguments);
-            dup2(input, 0);
-            dup2(output, 1);
-            close(input);
-            close(output);
+            if (input >= 0) { dup2(input, 0); close(input); }
+            else { close(0); }
+            if (output >= 0) { dup2(output, 1); close(output); }
+            else { close(1); }
             if (isBuiltin) { break; }
         }
         char path[MAX_LINE_LENGTH + 12];
@@ -242,8 +264,8 @@ bool run_pipeline(char* line)
         uint64_t actionCount = 0;
         int64_t inputFd = command.inputFd >= 0 ? command.inputFd : (i ? pipes[i - 1][0] : 0);
         int64_t outputFd = command.outputFd >= 0 ? command.outputFd : (i + 1 < commandCount ? pipes[i][1] : 1);
-        actions[actionCount++] = {SPAWN_DUP2, (int)inputFd, 0};
-        actions[actionCount++] = {SPAWN_DUP2, (int)outputFd, 1};
+        if (inputFd != 0) { actions[actionCount++] = {SPAWN_DUP2, (int)inputFd, 0}; }
+        if (outputFd != 1) { actions[actionCount++] = {SPAWN_DUP2, (int)outputFd, 1}; }
         for (uint64_t j = 0; j < pipeCount; j++)
         {
             actions[actionCount++] = {SPAWN_CLOSE, pipes[j][0], 0};

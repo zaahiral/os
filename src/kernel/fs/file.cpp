@@ -1,10 +1,42 @@
 #include "fs/file.h"
 #include "process/taskManager.h"
-#include "event/dispatcher.h"
+#include "drivers/hid/keyboard.h"
 #include "print.h"
 
 namespace Filesystem
 {
+    struct ConsoleInput : Drivers::KeyboardListener
+    {
+        Common::DoublyLinkedList<uint8_t> queue;
+        uint64_t waitingTask = 0;
+        bool reading = false;
+        bool shiftHeld = false;
+        Common::DoublyLinkedList<uint64_t> waiters;
+        char line[128];
+        uint64_t lineLength = 0;
+        uint64_t lineOffset = 0;
+
+        void on_scan_code(uint8_t scanCode) override
+        {
+            queue.append(scanCode);
+            if (waitingTask)
+            {
+                Task::TaskManager::instance().unblock_task_locked(waitingTask);
+                waitingTask = 0;
+            }
+        }
+    };
+
+    OpenFile* open_console()
+    {
+        auto file = new OpenFile();
+        file->kind = OpenFile::CONSOLE;
+        file->console = new ConsoleInput();
+        // Input belongs to the console, so a reader exiting cannot discard queued keys.
+        Drivers::KeyboardDriver::instance()->register_listener(file->console);
+        return file;
+    }
+
     int64_t install_file(Task::FileDescriptorTable& table, OpenFile* file)
     {
         for (uint64_t fd = 0; fd < MAX_FILE_DESCRIPTORS; fd++)
@@ -50,6 +82,11 @@ namespace Filesystem
             }
             if (!pipe->readers && !pipe->writers) { delete pipe; }
         }
+        if (file->console)
+        {
+            Drivers::KeyboardDriver::instance()->deregister_listener(file->console);
+            delete file->console;
+        }
         delete file->node;
         delete file;
     }
@@ -83,60 +120,63 @@ namespace Filesystem
     static int64_t read_console(OpenFile* file, char* buffer, uint64_t count)
     {
         auto& manager = Task::TaskManager::instance();
+        auto console = file->console;
         // Inherited console descriptors share a line buffer, so only one reader may fill or drain it at a time.
-        while (file->consoleReading)
+        while (console->reading)
         {
-            file->consoleWaiters.append(manager.get_current_task());
+            console->waiters.append(manager.get_current_task());
             manager.block_task();
             manager.lock();
         }
-        file->consoleReading = true;
-        if (file->lineOffset == file->lineLength)
+        console->reading = true;
+        if (console->lineOffset == console->lineLength)
         {
-            file->lineOffset = file->lineLength = 0;
-            auto tid = manager.get_current_task();
-            manager.unlock();
-            auto ed = Events::EventDispatcher::register_event_listener(tid, (char*)"HID/Keyboard", nullptr);
+            console->lineOffset = console->lineLength = 0;
             const char lowerCase[] = "\0\0" "1234567890-=" "\0\0" "qwertyuiop[]" "\0\0" "asdfghjkl;'`" "\0\\" "zxcvbnm,./" "\0*\0 ";
             const char upperCase[] = "\0\0" "!@#$%^&*()_+" "\0\0" "QWERTYUIOP{}" "\0\0" "ASDFGHJKL:\"~" "\0|" "ZXCVBNM<>?" "\0*\0 ";
-            bool isShiftHeld = false;
             bool isComplete = false;
             while (!isComplete)
             {
-                Events::EventDispatcher::block_event_listen(tid, ed);
-                uint64_t scanCode;
-                while ((scanCode = Events::EventDispatcher::read_from_event_queue(tid, ed)))
+                while (!console->queue.size())
                 {
-                    if (scanCode == 0x2A || scanCode == 0x36) { isShiftHeld = true; continue; }
-                    if (scanCode == 0xAA || scanCode == 0xB6) { isShiftHeld = false; continue; }
+                    console->waitingTask = manager.get_current_task();
+                    manager.block_task();
+                    manager.lock();
+                }
+                console->waitingTask = 0;
+                while (console->queue.size())
+                {
+                    auto event = console->queue.first();
+                    auto scanCode = *event;
+                    console->queue.remove(event);
+                    if (scanCode == 0x2A || scanCode == 0x36) { console->shiftHeld = true; continue; }
+                    if (scanCode == 0xAA || scanCode == 0xB6) { console->shiftHeld = false; continue; }
                     if (scanCode & 0x80) { continue; }
                     if (scanCode == 0x1C)
                     {
-                        file->line[file->lineLength++] = '\n';
+                        console->line[console->lineLength++] = '\n';
                         print_bytes("\n", 1);
                         isComplete = true;
                         break;
                     }
                     if (scanCode == 0x0E)
                     {
-                        if (file->lineLength) { file->lineLength--; print_bytes("\b", 1); }
+                        if (console->lineLength) { console->lineLength--; print_bytes("\b", 1); }
                         continue;
                     }
                     if (scanCode >= sizeof(lowerCase) - 1) { continue; }
-                    char c = isShiftHeld ? upperCase[scanCode] : lowerCase[scanCode];
-                    if (!c || file->lineLength == sizeof(file->line) - 1) { continue; }
-                    file->line[file->lineLength++] = c;
+                    char c = console->shiftHeld ? upperCase[scanCode] : lowerCase[scanCode];
+                    if (!c || console->lineLength == sizeof(console->line) - 1) { continue; }
+                    console->line[console->lineLength++] = c;
                     print_bytes(&c, 1);
                 }
             }
-            Events::EventDispatcher::deregister_event_listener(tid, ed);
-            manager.lock();
         }
-        if (count > file->lineLength - file->lineOffset) { count = file->lineLength - file->lineOffset; }
-        memcpy(buffer, file->line + file->lineOffset, count);
-        file->lineOffset += count;
-        file->consoleReading = false;
-        wake_waiters(file->consoleWaiters);
+        if (count > console->lineLength - console->lineOffset) { count = console->lineLength - console->lineOffset; }
+        memcpy(buffer, console->line + console->lineOffset, count);
+        console->lineOffset += count;
+        console->reading = false;
+        wake_waiters(console->waiters);
         return count;
     }
 

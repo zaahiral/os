@@ -57,8 +57,7 @@ namespace Loader
         if (!files.get_id_limit() && task->get_tlTable().get_physical_address().get()
             == Memory::MemoryManager::instance().get_main_address_space().get_physical_address().get())
         {
-            auto console = new Filesystem::OpenFile();
-            console->kind = Filesystem::OpenFile::CONSOLE;
+            auto console = Filesystem::open_console();
             console->references = 3;
             for (uint64_t fd = 0; fd < 3; fd++) { files.insert_at(fd, console); }
         }
@@ -288,8 +287,7 @@ namespace Loader
         }
         else
         {
-            auto console = new Filesystem::OpenFile();
-            console->kind = Filesystem::OpenFile::CONSOLE;
+            auto console = Filesystem::open_console();
             console->references = 3;
             for (uint64_t fd = 0; fd < 3; fd++) { files.insert_at(fd, console); }
         }
