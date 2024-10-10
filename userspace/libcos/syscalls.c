@@ -1,5 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <unistd.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -7,9 +9,7 @@
 #include "cossyscall.h"
 
 /* The operating system functions that newlib calls, built on the cOS system calls.
-   File descriptors 0, 1 and 2 are the keyboard and the screen, and the kernel's file descriptors start after them. */
-
-#define CONSOLE_DESCRIPTORS 3
+   The console, files and pipes all use the kernel's descriptor table. */
 
 void _exit(int code)
 {
@@ -30,16 +30,15 @@ int open(const char* path, int flags, ...)
     if (fd < 0)
     {
         struct stat st;
-        errno = ((flags & O_EXCL) && !stat(path, &st)) ? EEXIST : ENOENT;
+        errno = fd == -2 ? EMFILE : ((flags & O_EXCL) && !stat(path, &st)) ? EEXIST : ENOENT;
         return -1;
     }
-    return fd + CONSOLE_DESCRIPTORS;
+    return fd;
 }
 
 int close(int fd)
 {
-    if (fd < CONSOLE_DESCRIPTORS) { return 0; }
-    if (cos_syscall(SYSCALL_FCLOSE, fd - CONSOLE_DESCRIPTORS, 0, 0) < 0)
+    if (cos_syscall(SYSCALL_FCLOSE, fd, 0, 0) < 0)
     {
         errno = EBADF;
         return -1;
@@ -47,57 +46,10 @@ int close(int fd)
     return 0;
 }
 
-/* Scan code set 1 on a US keyboard, indexed by scan code. */
-static const char lowerCase[] = "\0\0" "1234567890-=" "\0\0" "qwertyuiop[]" "\0\0" "asdfghjkl;'`" "\0\\" "zxcvbnm,./" "\0*\0 ";
-static const char upperCase[] = "\0\0" "!@#$%^&*()_+" "\0\0" "QWERTYUIOP{}" "\0\0" "ASDFGHJKL:\"~" "\0|" "ZXCVBNM<>?" "\0*\0 ";
-
-/* Read a line from the keyboard, echoing it as it is typed, and return it with its newline. */
-static int read_keyboard_line(char* buffer, int count)
+int read(int fd, void* buffer, size_t count)
 {
-    static long keyboardEventDescriptor = -1;
-    if (keyboardEventDescriptor < 0) { keyboardEventDescriptor = cos_syscall(SYSCALL_EREGISTER, (long)"HID/Keyboard", 0, 0); }
-    int length = 0;
-    int isShiftHeld = 0;
-    while (1)
-    {
-        cos_syscall(SYSCALL_ELISTEN, keyboardEventDescriptor, 0, 0);
-        long scanCode;
-        while ((scanCode = cos_syscall(SYSCALL_EREAD, keyboardEventDescriptor, 0, 0)))
-        {
-            if (scanCode == 0x2A || scanCode == 0x36) { isShiftHeld = 1; continue; }
-            if (scanCode == 0xAA || scanCode == 0xB6) { isShiftHeld = 0; continue; }
-            if (scanCode & 0x80) { continue; }
-            if (scanCode == 0x1C)
-            {
-                buffer[length++] = '\n';
-                cos_syscall(SYSCALL_CONSOLE_WRITE, (long)"\n", 1, 0);
-                return length;
-            }
-            if (scanCode == 0x0E)
-            {
-                if (length) { length--; cos_syscall(SYSCALL_CONSOLE_WRITE, (long)"\b", 1, 0); }
-                continue;
-            }
-            if (scanCode >= (long)sizeof(lowerCase) - 1) { continue; }
-            char c = isShiftHeld ? upperCase[scanCode] : lowerCase[scanCode];
-            /* One byte is kept free for the newline. */
-            if (!c || length == count - 1) { continue; }
-            buffer[length++] = c;
-            cos_syscall(SYSCALL_CONSOLE_WRITE, (long)&c, 1, 0);
-        }
-    }
-}
-
-int read(int fd, void* buffer, int count)
-{
-    if (!count) { return 0; }
-    if (fd == 0) { return read_keyboard_line(buffer, count); }
-    if (fd < CONSOLE_DESCRIPTORS)
-    {
-        errno = EBADF;
-        return -1;
-    }
-    long result = cos_syscall(SYSCALL_FREAD, fd - CONSOLE_DESCRIPTORS, (long)buffer, count);
+    if (count > INT_MAX) { count = INT_MAX; }
+    long result = cos_syscall(SYSCALL_FREAD, fd, (long)buffer, count);
     if (result < 0)
     {
         errno = EBADF;
@@ -106,31 +58,24 @@ int read(int fd, void* buffer, int count)
     return result;
 }
 
-int write(int fd, const void* buffer, int count)
+int write(int fd, const void* buffer, size_t count)
 {
-    if (fd == 1 || fd == 2) { return cos_syscall(SYSCALL_CONSOLE_WRITE, (long)buffer, count, 0); }
-    if (fd < CONSOLE_DESCRIPTORS)
-    {
-        errno = EBADF;
-        return -1;
-    }
-    long result = cos_syscall(SYSCALL_FWRITE, fd - CONSOLE_DESCRIPTORS, (long)buffer, count);
+    if (count > INT_MAX) { count = INT_MAX; }
+    long result = cos_syscall(SYSCALL_FWRITE, fd, (long)buffer, count);
     if (result < 0)
     {
-        errno = EBADF;
+        errno = result == -2 ? EPIPE : EBADF;
         return -1;
     }
     return result;
 }
 
-int lseek(int fd, int offset, int whence)
+off_t lseek(int fd, off_t offset, int whence)
 {
-    if (fd < CONSOLE_DESCRIPTORS)
-    {
-        errno = ESPIPE;
-        return -1;
-    }
-    long result = cos_syscall(SYSCALL_LSEEK, fd - CONSOLE_DESCRIPTORS, offset, whence);
+    struct stat st;
+    if (fstat(fd, &st) < 0) { return -1; }
+    if (S_ISCHR(st.st_mode) || S_ISFIFO(st.st_mode)) { errno = ESPIPE; return -1; }
+    long result = cos_syscall(SYSCALL_LSEEK, fd, offset, whence);
     if (result < 0)
     {
         errno = EINVAL;
@@ -146,20 +91,14 @@ static void to_stat(struct FileStatus* status, struct stat* st)
     st->st_ino = status->inode;
     st->st_nlink = 1;
     st->st_size = status->size;
-    st->st_mode = status->isDirectory ? S_IFDIR : S_IFREG;
+    st->st_mode = status->kind == 2 ? S_IFCHR : status->kind == 3 ? S_IFIFO : status->kind == 1 ? S_IFDIR : S_IFREG;
     st->st_blksize = 512;
 }
 
 int fstat(int fd, struct stat* st)
 {
-    if (fd < CONSOLE_DESCRIPTORS)
-    {
-        memset(st, 0, sizeof(*st));
-        st->st_mode = S_IFCHR;
-        return 0;
-    }
     struct FileStatus status;
-    if (cos_syscall(SYSCALL_FSTAT, fd - CONSOLE_DESCRIPTORS, (long)&status, 0) < 0)
+    if (cos_syscall(SYSCALL_FSTAT, fd, (long)&status, 0) < 0)
     {
         errno = EBADF;
         return -1;
@@ -180,17 +119,16 @@ int stat(const char* path, struct stat* st)
     return 0;
 }
 
-/* The keyboard and the screen are not kernel files, so a copy of their descriptor is the same descriptor. */
+/* Duplicates share the kernel open file, including its offset or pipe endpoint. */
 int dup(int fd)
 {
-    if (fd < CONSOLE_DESCRIPTORS) { return fd; }
-    long newFd = cos_syscall(SYSCALL_DUP, fd - CONSOLE_DESCRIPTORS, 0, 0);
+    long newFd = cos_syscall(SYSCALL_DUP, fd, 0, 0);
     if (newFd < 0)
     {
-        errno = EBADF;
+        errno = newFd == -2 ? EMFILE : EBADF;
         return -1;
     }
-    return newFd + CONSOLE_DESCRIPTORS;
+    return newFd;
 }
 
 /* cOS has no symbolic links, so lstat is the same as stat. */
@@ -201,12 +139,14 @@ int lstat(const char* path, struct stat* st)
 
 int isatty(int fd)
 {
-    if (fd < CONSOLE_DESCRIPTORS) { return 1; }
+    struct stat st;
+    if (fstat(fd, &st) < 0) { return 0; }
+    if (S_ISCHR(st.st_mode)) { return 1; }
     errno = ENOTTY;
     return 0;
 }
 
-void* sbrk(int increment)
+void* sbrk(ptrdiff_t increment)
 {
     long oldBreak = cos_syscall(SYSCALL_BRK, 0, 0, 0);
     if (increment && cos_syscall(SYSCALL_BRK, oldBreak + increment, 0, 0) != oldBreak + increment)
@@ -241,7 +181,7 @@ clock_t times(struct tms* buffer)
     return milliseconds;
 }
 
-/* cOS does not have signals, links, pipes, fork or exec yet. Programs are started with posix_spawn instead. */
+/* cOS does not have signals, links, fork or exec yet. Programs are started with posix_spawn instead. */
 int kill(int pid, int signal)
 {
     errno = EINVAL;
@@ -257,15 +197,19 @@ int link(const char* oldPath, const char* newPath)
 
 int pipe(int fds[2])
 {
-    errno = ENOSYS;
-    return -1;
+    if (cos_syscall(SYSCALL_PIPE, (long)fds, 0, 0) < 0)
+    {
+        errno = EMFILE;
+        return -1;
+    }
+    return 0;
 }
 
-/* Standard input and output cannot be redirected yet, so a descriptor cannot replace another. */
 int dup2(int fd, int newFd)
 {
-    errno = ENOSYS;
-    return -1;
+    long result = cos_syscall(SYSCALL_DUP2, fd, newFd, 0);
+    if (result < 0) { errno = EBADF; return -1; }
+    return result;
 }
 
 int fork(void)
