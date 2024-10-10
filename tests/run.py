@@ -801,7 +801,7 @@ def cases():
         ('4.4', lambda s: snippet_test(s, '4.4', 't4.4.cpp', 'Hello from userspace!')),
         ('4.5', privileged_test), ('4.6', sleep_test),
         ('4.7', lambda s: snippet_test(s, '4.7', 't4.7.cpp', 'Read from initrd/hello.txt: Hello from the cOS initrd!')),
-        ('4.8', reclaim_test), ('4.9', userspace_memory_test), ('4.10', arguments_test), ('4.11', compiler_test), ('4.12', cxx_test), ('4.13', selfhost_test),
+        ('4.8', reclaim_test), ('4.9', userspace_memory_test), ('4.10', arguments_test), ('4.11', compiler_test), ('4.12', cxx_test), ('4.13', selfhost_test), ('4.14', shell_pipes_test), ('4.15', libcos_pipes_test),
         ('5.1', shell_test), ('5.2', gui_test),
         *[('5.' + str(n), lambda s, n=n: script_test(s, n)) for n in range(3, 7)],
         ('5.7', restart_shell_test),
@@ -832,7 +832,7 @@ def main():
     suite = Suite(args)
     results = []
     for name, test in tests:
-        if name in ('4.11', '4.12', '4.13') and not suite.native:
+        if name in ('4.11', '4.12', '4.13', '4.15') and not suite.native:
             print('SKIP ' + name + ' (configure NATIVE_TOOLCHAIN to include GCC)', flush=True)
             results.append({'id': name, 'status': 'SKIP'})
             continue
