@@ -23,7 +23,8 @@ KEYS = {'@': 'shift-2', ' ': 'spc', '.': 'dot', '/': 'slash', '-': 'minus', '=':
         ')': 'shift-0', '*': 'shift-8', '"': 'shift-apostrophe', '+': 'shift-equal',
         '_': 'shift-minus', '<': 'shift-comma', '>': 'shift-dot', '!': 'shift-1',
         ':': 'shift-semicolon', '%': 'shift-5', '{': 'shift-bracket_left',
-        '}': 'shift-bracket_right', '[': 'bracket_left', ']': 'bracket_right'}
+        '}': 'shift-bracket_right', '[': 'bracket_left', ']': 'bracket_right',
+        '|': 'shift-backslash', '\\': 'backslash'}
 
 
 class Guest:
@@ -664,6 +665,59 @@ def selfhost_test(suite):
     with suite.boot('4.13-reboot', disk=disk, iso=iso) as guest:
         guest.expect('$ ')
         guest.run('echo self-hosted kernel', 'self-hosted kernel')
+
+
+def shell_pipes_test(suite):
+    suite.build_variant()
+    disk = suite.output / 'pipes-disk.img'
+    shutil.copy2(suite.build / 'disk.img', disk)
+    data = (b'pipe buffer test\n' * 200) + b'last byte'
+    source = suite.output / 'large.txt'
+    source.write_bytes(data)
+    subprocess.run(['mcopy', '-i', str(disk), str(source), '::large.txt'], check=True)
+    hello = (ROOT / 'targets/x86_64/initrd/hello.txt').read_bytes()
+    counts = (hello.count(b'\n'), len(hello.split()), len(hello))
+    expected = r'\s+'.join(map(str, counts))
+    with suite.boot('4.14', disk=disk) as guest:
+        guest.shell()
+        screen = guest.run('ls initrd/bin | wc', '\n$ ')
+        require(re.search(r'^\s*\d+\s+\d+\s+\d+\s*$', screen, re.M), 'Pipeline did not print wc counts')
+        guest.run('cat initrd/hello.txt > disk/out.txt', '\n$ ')
+        guest.run('cat disk/out.txt', hello.decode().strip())
+        guest.run('echo again >> disk/out.txt', '\n$ ')
+        guest.run('cat disk/out.txt', '\nagain\n$')
+        screen = guest.run('wc < initrd/hello.txt', '\n$ ')
+        require(re.search(r'^\s*' + expected + r'\s*$', screen, re.M), 'Redirected wc counts differ')
+        screen = guest.run('cat initrd/hello.txt | cat | wc', '\n$ ')
+        require(re.search(r'^\s*' + expected + r'\s*$', screen, re.M), 'Three-stage pipeline counts differ')
+        guest.run('cat<disk/large.txt|cat>disk/copy.txt', '\n$ ')
+        guest.run('echo short>disk/trunc.txt', '\n$ ')
+        guest.run('echo x>disk/trunc.txt', '\n$ ')
+        guest.run('cat initrd/hello.txt |', 'Invalid pipeline or redirection.')
+        guest.run('cat < disk/missing.txt', 'Cannot open redirection or start pipeline.')
+        guest.run('help > disk/help.txt', '\n$ ')
+        guest.run('echo shell survives', '\nshell survives\n$')
+    actual = subprocess.check_output(['mtype', '-i', str(disk), '::out.txt'])
+    require(actual == hello + b'again\n', 'Append redirection differs: ' + repr(actual))
+    require(subprocess.check_output(['mtype', '-i', str(disk), '::trunc.txt']) == b'x\n', 'Output redirection did not truncate')
+    require(subprocess.check_output(['mtype', '-i', str(disk), '::copy.txt']) == data, 'Large pipeline changed bytes')
+    require(b'List the commands.' in subprocess.check_output(['mtype', '-i', str(disk), '::help.txt']),
+            'Built-in output did not follow redirection')
+
+
+def libcos_pipes_test(suite):
+    suite.build_variant()
+    disk = suite.output / 'libcos-pipes-disk.img'
+    shutil.copy2(suite.build / 'disk.img', disk)
+    subprocess.run(['mcopy', '-i', str(disk), str(ROOT / 'tests/programs/pipe.c'), '::pipe.c'], check=True)
+    with suite.boot('4.15', disk=disk) as guest:
+        guest.shell()
+        screen = guest.run('gcc disk/pipe.c -o disk/pipe', '\n$ ', timeout=180)
+        require('error:' not in screen, 'Native C fixture did not compile:\n' + screen)
+        screen = guest.run('disk/pipe', '\n$ ', timeout=60)
+        require('Pipe, redirection and waitpid checks passed.' in screen, 'Native pipe checks failed:\n' + screen)
+    require(subprocess.check_output(['mtype', '-i', str(disk), '::fds.txt']) == b'ab redirected',
+            'libcos stdout redirection changed file bytes')
 
 
 def shell_test(suite):
