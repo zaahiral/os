@@ -42,7 +42,7 @@ cmake --build build
 cmake --build build --target run
 ```
 
-This builds `build/cOS.iso` and boots it in QEMU with 1GiB of memory and the AMD PCnet network card. cOS starts the user shell, `initrd/bin/sh`. `help` lists its commands, and `exit` leaves it for the kernel shell, which has more.
+This builds `build/cOS.iso` and boots it in QEMU with 1GiB of memory and the AMD PCnet network card. cOS starts the user shell, `initrd/bin/sh`. `help` lists its commands, and `exit` leaves it for the kernel shell, which has more. The user shell connects programs with pipes and redirects their input and output, as in `ls initrd/bin | wc` and `cat initrd/hello.txt > disk/out.txt`.
 
 Files placed in `targets/x86_64/initrd` are packed into the initial ramdisk, and the kernel opens them by their path in the ramdisk, such as `initrd/hello.txt`. User-space programs in `userspace` are compiled into `initrd/bin`.
 
@@ -241,11 +241,15 @@ _Edit: Quoted items are my evaluation of this completed checklist, with links to
 
 - [x] - The kernel provides a system calls interface to send data to the kernel.
 
-> This uses the built-in `syscall` instruction, storing arguments in registers. This is very fast as it avoids some of the overhead of interrupts. There are now 27 system calls, covering files, directories, programs, memory and events. Care must be taken to ensure all data coming from user-space is treated as untrustworthy and scrutinised with defensive programming. Pointers are checked to be below the kernel's half of memory, but not yet checked to be mapped.
+> This uses the built-in `syscall` instruction, storing arguments in registers. This is very fast as it avoids some of the overhead of interrupts. There are now 30 system calls, covering files, directories, pipes, programs, memory and events. Care must be taken to ensure all data coming from user-space is treated as untrustworthy and scrutinised with defensive programming. Pointers are checked to be below the kernel's half of memory, but not yet checked to be mapped.
 
 - [x] - The kernel can start, wait for and clean up after user-space programs.
 
 > Programs are started with arguments and an environment, and the program that started them collects the exit code. The kernel frees an exited program's memory, kernel stack, files and event descriptors. Test 4.8 runs programs repeatedly and checks that free memory does not drop.
+
+- [x] - Programs can be connected with pipes, and their input and output redirected.
+
+> As in xv6, every program starts with the console open as descriptors 0, 1 and 2, and a program shares its open files with the programs it starts. A pipe has a 512-byte buffer. A read waits for data and returns end of file once every write end is closed, and a write fails once every read end is closed. The user shell supports `|`, `>`, `>>` and `<`, as tests 4.14 and 4.15 show.
 
 - [x] - User-space programs can allocate memory.
 
@@ -564,6 +568,12 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    </td>
   </tr>
   <tr>
+   <td>Open files 
+   </td>
+   <td>Each file descriptor refers to a shared open file, which holds the offset. Copies made with <code>dup</code>, <code>dup2</code> or by starting a program share it. The console is an open file as well, so the keyboard and the screen are read and written in the same way as a file or a pipe. 
+   </td>
+  </tr>
+  <tr>
    <td>Filesystem driver interface 
    </td>
    <td>Provides a standard interface for opening, reading, writing, and closing files. Each function calls the function for the underlying driver. This will be implemented using virtual functions and inheritance. 
@@ -814,6 +824,12 @@ We show hierarchy charts for each part of the operating system, followed by a ta
    <td>Files and directories 
    </td>
    <td>Opening, reading, writing and closing files, seeking, <code>stat</code>, listing directories, <code>mkdir</code>, <code>unlink</code> and <code>dup</code>. 
+   </td>
+  </tr>
+  <tr>
+   <td>Pipes 
+   </td>
+   <td><code>pipe</code> makes a pipe with a read end and a write end. A started program shares its parent's open files, and the spawn system call can rearrange them first with <code>dup2</code> and close actions. This is how the shell connects programs. 
    </td>
   </tr>
   <tr>

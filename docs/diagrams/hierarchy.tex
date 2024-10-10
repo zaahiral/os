@@ -90,7 +90,7 @@
 \begin{tikzpicture}[handout]
   \layer{4}{Filesystem Layer}
   \fork{0}{8}
-  \branch{0}{Virtual Filesystem Manager}{File tree, Path resolution, Filesystem driver interface}
+  \branch{0}{Virtual Filesystem Manager}{File tree, Path resolution, Open files, Filesystem driver interface}
   \branch{4}{TAR driver}{TAR header parsing, VFS node translation}
   \branch{8}{FAT32 driver}{Cluster chains, Directory entries, Long file names}
 \end{tikzpicture}
@@ -124,7 +124,7 @@
   \layer{6}{User-space}
   \fork{0}{12}
   \branch{0}{ELF Loader}{Loads in sections, Arguments and environment, Thread-local storage}
-  \branch{4}{System Calls}{Syscall handler, Files and directories, Programs, Memory}
+  \branch{4}{System Calls}{Syscall handler, Files and directories, Pipes, Programs, Memory}
   \branch{8}{C Library}{Header-only library, libcos for newlib}
   \branch{12}{Programs}{User shell, File utilities, Native toolchain}
 \end{tikzpicture}
@@ -136,7 +136,7 @@
   \layer{6}{Shell and Desktop}
   \fork{0}{12}
   \branch{0}{Kernel shell}{Built-in commands, Program launching}
-  \branch{4}{User shell}{Reading commands, Program launching}
+  \branch{4}{User shell}{Reading commands, Pipes and redirection, Program launching}
   \branch{8}{Desktop}{Framebuffer drawing, Windows}
   \branch{12}{cScript}{Lexer, Parser, Interpreter}
 \end{tikzpicture}
