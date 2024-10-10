@@ -83,3 +83,26 @@ int main(int argc, char** argv)
     CHECK(write(fds[1], "x", 1) == -1 && errno == EPIPE);
     CHECK(close(fds[1]) == 0);
 
+    CHECK(pipe(fds) == 0);
+    CHECK(posix_spawn_file_actions_init(&actions) == 0);
+    CHECK(posix_spawn_file_actions_addclose(&actions, fds[1]) == 0);
+    char* dropArgs[] = {argv[0], "drop", NULL};
+    CHECK(posix_spawn(&child, argv[0], &actions, NULL, dropArgs, environ) == 0);
+    CHECK(posix_spawn_file_actions_destroy(&actions) == 0);
+    CHECK(close(fds[0]) == 0);
+    char large[2048] = {0};
+    length = write(fds[1], large, sizeof(large));
+    CHECK(length == -1 || (length >= 0 && length < sizeof(large)));
+    CHECK(write(fds[1], "x", 1) == -1 && errno == EPIPE);
+    CHECK(waitpid(child, &status, 0) == child && WEXITSTATUS(status) == 13);
+    CHECK(close(fds[1]) == 0);
+
+    CHECK(pipe(fds) == 0);
+    int reader = dup(fds[0]);
+    writer = dup(fds[1]);
+    CHECK(reader >= 3 && writer >= 3);
+    CHECK(close(fds[0]) == 0 && close(fds[1]) == 0);
+    CHECK(write(writer, "y", 1) == 1 && read(reader, data, 1) == 1 && data[0] == 'y');
+    CHECK(close(writer) == 0 && read(reader, data, 1) == 0);
+    CHECK(close(reader) == 0);
+
