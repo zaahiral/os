@@ -136,3 +136,20 @@ int main(int argc, char** argv)
     CHECK(!isatty(-1) && errno == EBADF);
     CHECK(close(-1) == -1 && errno == EBADF);
 
+    CHECK(pipe(fds) == 0);
+    CHECK(posix_spawn_file_actions_init(&actions) == 0);
+    CHECK(posix_spawn_file_actions_adddup2(&actions, 255, 1) == 0);
+    CHECK(posix_spawn(&child, argv[0], &actions, NULL, writerArgs, environ) == EBADF);
+    CHECK(posix_spawn_file_actions_destroy(&actions) == 0);
+    CHECK(close(fds[1]) == 0 && read(fds[0], data, 1) == 0 && close(fds[0]) == 0);
+    int copies[253];
+    for (int i = 0; i < 253; i++) { CHECK((copies[i] = dup(1)) >= 3); }
+    CHECK(dup(1) == -1 && errno == EMFILE);
+    CHECK(pipe(fds) == -1 && errno == EMFILE);
+    CHECK(close(copies[252]) == 0);
+    CHECK(pipe(fds) == -1 && errno == EMFILE);
+    for (int i = 0; i < 252; i++) { CHECK(close(copies[i]) == 0); }
+    CHECK(pipe(fds) == 0 && close(fds[0]) == 0 && close(fds[1]) == 0);
+    puts("Pipe, redirection and waitpid checks passed.");
+    return 0;
+}
