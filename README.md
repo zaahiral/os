@@ -2947,6 +2947,22 @@ int main(int argc, char** argv)
 </p>
 
 <p align="center">
+<img width="700" src="docs/evidence/test-4.14.png" alt="Screenshot of pipes and redirection in the user shell for test 4.14.">
+</p>
+
+<p align="center">
+<i>Pipes, appending and input redirection in the user shell for test 4.14. </i>
+</p>
+
+<p align="center">
+<img width="700" src="docs/evidence/test-4.15.png" alt="Screenshot of a program compiled inside cOS checking pipes and posix_spawn redirection for test 4.15.">
+</p>
+
+<p align="center">
+<i>A program compiled inside cOS checks pipes, redirection and waitpid for test 4.15. </i>
+</p>
+
+<p align="center">
 <img width="700" src="docs/evidence/test-5.1.png" alt="Screenshot of listing the initrd and printing a file in the shell for test 5.1.">
 </p>
 
