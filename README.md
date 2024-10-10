@@ -3089,7 +3089,7 @@ I have a few ideas on potential improvements to this project from my own reflect
 
 - **Checking system call arguments**: System calls check that pointers from user-space are below the kernel's half of memory, but not that they are mapped. A program that passes an unmapped address can make the kernel fault. Each pointer should be checked page by page before the kernel uses it.
 
-- **Pipes and open files**: cOS has no pipes, so the output of one program cannot be sent to another, and the shell cannot redirect output to a file. Removing a file frees its data straight away, even if a program still has it open, and two descriptors from `dup` do not share an offset.
+- **Open files and the shell**: Removing a file frees its data straight away, even if a program still has it open. The shell has pipes and redirection, but no quoting, no `2>` and no scripts.
 
 - **Rebuilding GCC inside cOS**: cOS compiles its own kernel, but GCC and binutils are still built on Linux. Building them inside cOS would also need `make` and a shell that can run scripts.
 
