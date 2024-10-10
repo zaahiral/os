@@ -57,3 +57,29 @@ int main(int argc, char** argv)
     int length;
     while ((length = read(fds[0], data, sizeof(data))) > 0)
     {
+        for (int i = 0; i < length; i++, total++)
+        {
+            CHECK(total < 8198);
+            CHECK(data[i] == (total < 8192 ? total % 251 : "stderr"[total - 8192]));
+        }
+    }
+    /* EOF must arrive while the child is still unreaped, including its duplicated standard error. */
+    CHECK(length == 0 && total == 8198);
+    CHECK(close(fds[0]) == 0);
+    int status;
+    CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 7);
+
+    CHECK(pipe(fds) == 0);
+    CHECK(posix_spawn_file_actions_init(&actions) == 0);
+    CHECK(posix_spawn_file_actions_adddup2(&actions, fds[0], 0) == 0);
+    CHECK(posix_spawn_file_actions_addclose(&actions, fds[0]) == 0);
+    CHECK(posix_spawn_file_actions_addclose(&actions, fds[1]) == 0);
+    char* readerArgs[] = {argv[0], "reader", NULL};
+    CHECK(posix_spawn(&child, argv[0], &actions, NULL, readerArgs, environ) == 0);
+    CHECK(posix_spawn_file_actions_destroy(&actions) == 0);
+    CHECK(close(fds[0]) == 0);
+    CHECK(write(fds[1], "x", 1) == 1);
+    CHECK(waitpid(child, &status, 0) == child && WEXITSTATUS(status) == 11);
+    CHECK(write(fds[1], "x", 1) == -1 && errno == EPIPE);
+    CHECK(close(fds[1]) == 0);
+
