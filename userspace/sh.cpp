@@ -1,24 +1,10 @@
 #include "process/syscall.h"
 #include "output.h"
+#include "unistd.h"
 
-// The user-space shell. It reads the keyboard through the event system calls, runs a few built-in
-// commands, and runs every other command as a program from initrd/bin, waiting for it to exit.
+// The user-space shell runs built-in commands and programs from initrd/bin through standard file descriptors.
 
 constexpr uint64_t MAX_LINE_LENGTH = 76;
-constexpr uint8_t ENTER_SCAN_CODE = 0x1C;
-constexpr uint8_t BACKSPACE_SCAN_CODE = 0x0E;
-constexpr uint8_t LEFT_SHIFT_SCAN_CODE = 0x2A;
-constexpr uint8_t RIGHT_SHIFT_SCAN_CODE = 0x36;
-// A key release sends the key's scan code with the top bit set.
-constexpr uint8_t RELEASE_BIT = 0x80;
-
-// Characters for scan code set 1 on a US keyboard, indexed by scan code.
-constexpr char LOWER_CASE[] = "\0\0" "1234567890-=" "\0\0" "qwertyuiop[]" "\0\0" "asdfghjkl;'`" "\0\\" "zxcvbnm,./" "\0*\0 ";
-constexpr char UPPER_CASE[] = "\0\0" "!@#$%^&*()_+" "\0\0" "QWERTYUIOP{}" "\0\0" "ASDFGHJKL:\"~" "\0|" "ZXCVBNM<>?" "\0*\0 ";
-constexpr uint8_t KEY_COUNT = sizeof(LOWER_CASE) - 1;
-
-static uint64_t keyboardEventDescriptor;
-
 bool strings_equal(const char* a, const char* b)
 {
     while (*a && *a == *b)
@@ -41,39 +27,19 @@ uint64_t string_length(const char* text)
     return length;
 }
 
-// Read a line from the keyboard into a buffer, echoing each character as it is typed.
-void read_line(char* line)
+// Read through standard input so a shell can itself receive a redirected command stream.
+bool read_line(char* line)
 {
     uint64_t length = 0;
-    bool isShiftHeld = false;
-    while (1)
+    char c;
+    int64_t result;
+    while ((result = read(0, &c, 1)) > 0)
     {
-        syscall(SYSCALL_ELISTEN, keyboardEventDescriptor);
-        uint64_t scanCode;
-        while ((scanCode = syscall(SYSCALL_EREAD, keyboardEventDescriptor, 0, 0)))
-        {
-            if (scanCode == LEFT_SHIFT_SCAN_CODE || scanCode == RIGHT_SHIFT_SCAN_CODE) { isShiftHeld = true; continue; }
-            if (scanCode == (LEFT_SHIFT_SCAN_CODE | RELEASE_BIT) || scanCode == (RIGHT_SHIFT_SCAN_CODE | RELEASE_BIT)) { isShiftHeld = false; continue; }
-            if (scanCode & RELEASE_BIT) { continue; }
-            if (scanCode == ENTER_SCAN_CODE)
-            {
-                print("\n");
-                line[length] = '\0';
-                return;
-            }
-            if (scanCode == BACKSPACE_SCAN_CODE)
-            {
-                if (length) { length--; print("\b"); }
-                continue;
-            }
-            if (scanCode >= KEY_COUNT) { continue; }
-            char c = isShiftHeld ? UPPER_CASE[scanCode] : LOWER_CASE[scanCode];
-            if (!c || length == MAX_LINE_LENGTH) { continue; }
-            line[length++] = c;
-            char echo[2] = {c, '\0'};
-            print(echo);
-        }
+        if (c == '\n') { break; }
+        if (length < MAX_LINE_LENGTH) { line[length++] = c; }
     }
+    line[length] = '\0';
+    return result > 0 || length;
 }
 
 void help_command()
@@ -83,6 +49,7 @@ void help_command()
     print("echo <text>      Print the text.\n");
     print("write <file> <text>  Add a line to a file on the disk.\n");
     print("exit             Leave the user shell for the kernel shell.\n");
+    print("Use | between programs, > or >> to write a file, and < to read a file.\n");
     print("Any other command runs the program of that name in initrd/bin with its arguments,\n");
     print("such as ls, cat disk/readme.txt, wc initrd/hello.txt or memtest.\n");
 }
@@ -98,8 +65,8 @@ void write_command(char* argument)
         print("Usage: write <file> <text>, such as write disk/notes.txt hello\n");
         return;
     }
-    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)argument, FILE_CREATE | FILE_APPEND);
-    if (fd == (uint64_t)-1)
+    int64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)argument, FILE_CREATE | FILE_APPEND);
+    if (fd < 0)
     {
         print("Cannot write to ");
         print(argument);
@@ -109,6 +76,17 @@ void write_command(char* argument)
     syscall(SYSCALL_FWRITE, fd, (uint64_t)text, string_length(text));
     syscall(SYSCALL_FWRITE, fd, (uint64_t)"\n", 1);
     syscall(SYSCALL_FCLOSE, fd);
+}
+
+bool run_builtin(char* name, char* arguments)
+{
+    if (strings_equal(name, "help")) { help_command(); }
+    else if (strings_equal(name, "clear")) { syscall(SYSCALL_CLEAR); }
+    else if (strings_equal(name, "echo")) { print(arguments); print("\n"); }
+    else if (strings_equal(name, "write")) { write_command(arguments); }
+    else if (strings_equal(name, "exit")) { syscall(SYSCALL_EXIT, 0); }
+    else { return false; }
+    return true;
 }
 
 void run_program(const char* name, const char* arguments)
@@ -129,8 +107,6 @@ void run_program(const char* name, const char* arguments)
         return;
     }
     auto exitCode = (int64_t)syscall(SYSCALL_WAIT, tid);
-    // Keys typed while the program ran were meant for it, so we discard them.
-    while (syscall(SYSCALL_EREAD, keyboardEventDescriptor, 0, 0)) {}
     // As in most shells, only an exit code that reports a failure is printed.
     if (!exitCode) { return; }
     print("Exited with code ");
@@ -139,15 +115,174 @@ void run_program(const char* name, const char* arguments)
     print(".\n");
 }
 
+constexpr uint64_t MAX_PIPELINE_COMMANDS = 16;
+
+struct Command
+{
+    char text[MAX_LINE_LENGTH + 1] = {};
+    uint64_t length = 0;
+    char input[MAX_LINE_LENGTH + 1] = {};
+    char output[MAX_LINE_LENGTH + 1] = {};
+    bool append = false;
+    int64_t inputFd = -1;
+    int64_t outputFd = -1;
+};
+
+// Operators are tokens even without surrounding spaces. File names and arguments cannot contain spaces.
+bool run_pipeline(char* line)
+{
+    Command commands[MAX_PIPELINE_COMMANDS];
+    uint64_t commandCount = 1;
+    bool isValid = true;
+    char pending = 0;
+    bool append = false;
+    for (char* c = line; *c && isValid;)
+    {
+        if (*c == ' ') { c++; continue; }
+        if (*c == '|' || *c == '<' || *c == '>')
+        {
+            char operation = *c++;
+            if (pending) { isValid = false; break; }
+            if (operation == '|')
+            {
+                if (!commands[commandCount - 1].length || commandCount == MAX_PIPELINE_COMMANDS) { isValid = false; break; }
+                commandCount++;
+            }
+            else
+            {
+                pending = operation;
+                append = operation == '>' && *c == '>';
+                if (append) { c++; }
+            }
+            continue;
+        }
+        char* word = c;
+        while (*c && *c != ' ' && *c != '|' && *c != '<' && *c != '>') { c++; }
+        auto& command = commands[commandCount - 1];
+        auto length = c - word;
+        if (pending)
+        {
+            if (pending == '<')
+            {
+                if (command.input[0]) { isValid = false; break; }
+                for (int64_t i = 0; i < length; i++) { command.input[i] = word[i]; }
+            }
+            else
+            {
+                if (command.output[0]) { isValid = false; break; }
+                for (int64_t i = 0; i < length; i++) { command.output[i] = word[i]; }
+                command.append = append;
+            }
+            pending = 0;
+        }
+        else
+        {
+            if (command.length) { command.text[command.length++] = ' '; }
+            for (int64_t i = 0; i < length; i++) { command.text[command.length++] = word[i]; }
+            command.text[command.length] = '\0';
+        }
+    }
+    if (pending || !commands[commandCount - 1].length) { isValid = false; }
+    if (!isValid) { print("Invalid pipeline or redirection.\n"); return false; }
+
+    int pipes[MAX_PIPELINE_COMMANDS - 1][2];
+    uint64_t pipeCount = 0;
+    for (; pipeCount + 1 < commandCount; pipeCount++)
+    {
+        if (pipe(pipes[pipeCount]) < 0) { isValid = false; break; }
+    }
+    for (uint64_t i = 0; i < commandCount && isValid; i++)
+    {
+        auto& command = commands[i];
+        if (command.input[0])
+        {
+            command.inputFd = open(command.input);
+            if (command.inputFd < 0) { isValid = false; }
+        }
+        if (command.output[0])
+        {
+            command.outputFd = open(command.output, FILE_CREATE | (command.append ? FILE_APPEND : FILE_TRUNCATE));
+            if (command.outputFd < 0) { isValid = false; }
+        }
+    }
+    uint64_t tids[MAX_PIPELINE_COMMANDS];
+    uint64_t started = 0;
+    for (uint64_t i = 0; i < commandCount && isValid; i++)
+    {
+        auto& command = commands[i];
+        char* arguments = command.text;
+        while (*arguments && *arguments != ' ') { arguments++; }
+        if (*arguments) { *arguments++ = '\0'; }
+        if (commandCount == 1)
+        {
+            auto input = dup(0);
+            auto output = dup(1);
+            if (input < 0 || output < 0)
+            {
+                if (input >= 0) { close(input); }
+                if (output >= 0) { close(output); }
+                isValid = false;
+                break;
+            }
+            if (command.inputFd >= 0) { dup2(command.inputFd, 0); }
+            if (command.outputFd >= 0) { dup2(command.outputFd, 1); }
+            bool isBuiltin = run_builtin(command.text, arguments);
+            dup2(input, 0);
+            dup2(output, 1);
+            close(input);
+            close(output);
+            if (isBuiltin) { break; }
+        }
+        char path[MAX_LINE_LENGTH + 12];
+        bool hasDirectory = false;
+        for (char* c = command.text; *c; c++) { if (*c == '/') { hasDirectory = true; } }
+        copy_string(path, hasDirectory ? "" : "initrd/bin/");
+        copy_string(path + string_length(path), command.text);
+        SpawnFileAction actions[MAX_SPAWN_ACTIONS];
+        uint64_t actionCount = 0;
+        int64_t inputFd = command.inputFd >= 0 ? command.inputFd : (i ? pipes[i - 1][0] : 0);
+        int64_t outputFd = command.outputFd >= 0 ? command.outputFd : (i + 1 < commandCount ? pipes[i][1] : 1);
+        actions[actionCount++] = {SPAWN_DUP2, (int)inputFd, 0};
+        actions[actionCount++] = {SPAWN_DUP2, (int)outputFd, 1};
+        for (uint64_t j = 0; j < pipeCount; j++)
+        {
+            actions[actionCount++] = {SPAWN_CLOSE, pipes[j][0], 0};
+            actions[actionCount++] = {SPAWN_CLOSE, pipes[j][1], 0};
+        }
+        for (uint64_t j = 0; j < commandCount; j++)
+        {
+            if (commands[j].inputFd >= 0) { actions[actionCount++] = {SPAWN_CLOSE, (int)commands[j].inputFd, 0}; }
+            if (commands[j].outputFd >= 0) { actions[actionCount++] = {SPAWN_CLOSE, (int)commands[j].outputFd, 0}; }
+        }
+        SpawnRequest request = {path, arguments, nullptr, actions, actionCount};
+        auto tid = (int64_t)syscall(SYSCALL_SPAWN_ACTIONS, (uint64_t)&request);
+        if (tid < 0) { isValid = false; }
+        else { tids[started++] = tid; }
+    }
+    // The parent must close its copies before waiting, so readers can see EOF and writers can see a closed reader.
+    for (uint64_t i = 0; i < pipeCount; i++) { close(pipes[i][0]); close(pipes[i][1]); }
+    for (uint64_t i = 0; i < commandCount; i++)
+    {
+        if (commands[i].inputFd >= 0) { close(commands[i].inputFd); }
+        if (commands[i].outputFd >= 0) { close(commands[i].outputFd); }
+    }
+    for (uint64_t i = 0; i < started; i++) { wait(tids[i]); }
+    if (!isValid) { print("Cannot open redirection or start pipeline.\n"); }
+    return isValid;
+}
+
 extern "C" void _start()
 {
-    keyboardEventDescriptor = syscall(SYSCALL_EREGISTER, (uint64_t)"HID/Keyboard", 0);
     print("\ncOS user shell. Type help for a list of commands.\n");
     char line[MAX_LINE_LENGTH + 1];
     while (1)
     {
         print("$ ");
-        read_line(line);
+        if (!read_line(line)) { syscall(SYSCALL_EXIT, 0); }
+
+        bool hasOperators = false;
+        for (char* c = line; *c; c++) { if (*c == '|' || *c == '<' || *c == '>') { hasOperators = true; } }
+        if (hasOperators) { run_pipeline(line); continue; }
 
         // Split the line into the command and its argument at the first space.
         char* argument = line;
@@ -156,15 +291,6 @@ extern "C" void _start()
         while (*argument == ' ') { argument++; }
 
         if (!line[0]) { continue; }
-        else if (strings_equal(line, "help")) { help_command(); }
-        else if (strings_equal(line, "clear")) { syscall(SYSCALL_CLEAR); }
-        else if (strings_equal(line, "echo")) { print(argument); print("\n"); }
-        else if (strings_equal(line, "write")) { write_command(argument); }
-        else if (strings_equal(line, "exit"))
-        {
-            syscall(SYSCALL_EDEREGISTER, keyboardEventDescriptor);
-            syscall(SYSCALL_EXIT, 0);
-        }
-        else { run_program(line, argument); }
+        if (!run_builtin(line, argument)) { run_program(line, argument); }
     }
 }

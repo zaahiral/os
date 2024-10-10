@@ -6,8 +6,8 @@ int main(int argc, char** argv)
 {
     const char* path = argc > 1 ? argv[1] : "disk/log.txt";
     const char line[] = "Written by a user-space program.\n";
-    uint64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)path, FILE_CREATE | FILE_APPEND);
-    if (fd == (uint64_t)-1)
+    int64_t fd = syscall(SYSCALL_FOPEN, (uint64_t)path, FILE_CREATE | FILE_APPEND);
+    if (fd < 0)
     {
         printf("Could not open %s.\n", path);
         return 1;

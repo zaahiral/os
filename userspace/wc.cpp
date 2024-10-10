@@ -5,17 +5,12 @@
 // Counts the lines, words and bytes in each file named in the arguments, as the Unix wc program does.
 int main(int argc, char** argv)
 {
-    if (argc < 2)
-    {
-        puts("Usage: wc <file>...");
-        return 1;
-    }
     uint64_t totalLines = 0;
     uint64_t totalWords = 0;
     uint64_t totalBytes = 0;
-    for (int i = 1; i < argc; i++)
+    for (int i = argc > 1 ? 1 : 0; i < argc; i++)
     {
-        int64_t fd = open(argv[i]);
+        int64_t fd = i ? open(argv[i]) : 0;
         if (fd < 0)
         {
             printf("wc: no such file: %s\n", argv[i]);
@@ -40,8 +35,10 @@ int main(int argc, char** argv)
                 isInWord = !isSpace;
             }
         }
-        close(fd);
-        printf("%6lu %6lu %6lu %s\n", lines, words, bytes, argv[i]);
+        if (i) { close(fd); }
+        if (length < 0) { return 1; }
+        if (i) { printf("%6lu %6lu %6lu %s\n", lines, words, bytes, argv[i]); }
+        else { printf("%6lu %6lu %6lu\n", lines, words, bytes); }
         totalLines += lines;
         totalWords += words;
         totalBytes += bytes;
