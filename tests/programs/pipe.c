@@ -106,3 +106,33 @@ int main(int argc, char** argv)
     CHECK(close(writer) == 0 && read(reader, data, 1) == 0);
     CHECK(close(reader) == 0);
 
+    int other[2];
+    CHECK(pipe(fds) == 0 && pipe(other) == 0);
+    CHECK(dup2(other[1], fds[1]) == fds[1]);
+    CHECK(read(fds[0], data, 1) == 0 && close(fds[0]) == 0);
+    CHECK(close(other[0]) == 0 && close(other[1]) == 0);
+    CHECK(write(fds[1], "x", 1) == -1 && errno == EPIPE);
+    CHECK(close(fds[1]) == 0);
+
+    int file = open("disk/fds.txt", O_CREAT | O_TRUNC | O_RDWR, 0666);
+    CHECK(file >= 3 && write(file, "ab", 2) == 2 && lseek(file, 0, SEEK_SET) == 0);
+    int copy = dup(file);
+    CHECK(copy >= 3);
+    CHECK(read(file, data, 1) == 1 && data[0] == 'a');
+    CHECK(read(copy, data, 1) == 1 && data[0] == 'b');
+    CHECK(close(copy) == 0);
+    int input = dup(0);
+    int output = dup(1);
+    CHECK(input >= 3 && output >= 3);
+    CHECK(dup2(file, 0) == 0 && !isatty(0));
+    CHECK(lseek(file, 0, SEEK_SET) == 0 && read(0, data, 2) == 2 && !memcmp(data, "ab", 2));
+    CHECK(dup2(file, 1) == 1 && !isatty(1));
+    CHECK(fstat(1, &st) == 0 && S_ISREG(st.st_mode));
+    CHECK(printf(" redirected") > 0 && fflush(stdout) == 0);
+    CHECK(dup2(input, 0) == 0 && dup2(output, 1) == 1);
+    CHECK(close(input) == 0 && close(output) == 0 && close(file) == 0);
+    CHECK(isatty(1) && fstat(1, &st) == 0 && S_ISCHR(st.st_mode));
+    CHECK(dup2(-1, 1) == -1 && errno == EBADF);
+    CHECK(!isatty(-1) && errno == EBADF);
+    CHECK(close(-1) == -1 && errno == EBADF);
+
