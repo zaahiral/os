@@ -150,6 +150,23 @@ int main(int argc, char** argv)
     CHECK(pipe(fds) == -1 && errno == EMFILE);
     for (int i = 0; i < 252; i++) { CHECK(close(copies[i]) == 0); }
     CHECK(pipe(fds) == 0 && close(fds[0]) == 0 && close(fds[1]) == 0);
+    /* The shell must keep temporary files and pipes away from closed standard descriptors. */
+    file = open("disk/commands.txt", O_CREAT | O_TRUNC | O_RDWR, 0666);
+    const char commands[] = "cat initrd/hello.txt > disk/closed.txt\n"
+                            "cat<initrd/hello.txt|cat>disk/chain.txt\n"
+                            "echo builtin>disk/builtin.txt\n";
+    CHECK(file >= 3 && write(file, commands, sizeof(commands) - 1) == sizeof(commands) - 1);
+    CHECK(lseek(file, 0, SEEK_SET) == 0);
+    CHECK(posix_spawn_file_actions_init(&actions) == 0);
+    CHECK(posix_spawn_file_actions_adddup2(&actions, file, 0) == 0);
+    CHECK(posix_spawn_file_actions_addclose(&actions, file) == 0);
+    CHECK(posix_spawn_file_actions_addclose(&actions, 1) == 0);
+    CHECK(posix_spawn_file_actions_addclose(&actions, 2) == 0);
+    char* shellArgs[] = {"sh", NULL};
+    CHECK(posix_spawn(&child, "initrd/bin/sh", &actions, NULL, shellArgs, environ) == 0);
+    CHECK(posix_spawn_file_actions_destroy(&actions) == 0);
+    CHECK(close(file) == 0);
+    CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
     puts("Pipe, redirection and waitpid checks passed.");
     return 0;
 }

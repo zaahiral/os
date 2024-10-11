@@ -696,11 +696,28 @@ def shell_pipes_test(suite):
         guest.run('cat initrd/hello.txt |', 'Invalid pipeline or redirection.')
         guest.run('cat < disk/missing.txt', 'Cannot open redirection or start pipeline.')
         guest.run('help > disk/help.txt', '\n$ ')
+        guest.run('echo protected>disk/out.tx', '\n$ ')
+        guest.run('echo protected>disk/long.txt', '\n$ ')
+        # Truncating this line to 76 characters changes out.txt to the existing out.tx.
+        command = 'echo ' + 'x' * 57 + ' > disk/out.txt'
+        require(len(command) == 77, 'Overflow fixture must cross the shell limit by one byte')
+        guest.run(command, 'Command line too long.')
+        guest.run('echo ' + 'x' * 80 + '>disk/long.txt', 'Command line too long.')
+        guest.run('echo ' + 'x' * 71, '\n' + 'x' * 71 + '\n$')
+        guest.type('console')
+        guest.expect('Queue console input now.')
+        guest.type('reader input')
+        guest.type('echo Queued input')
+        screen = guest.expect('\nQueued input\n$')
+        require('Console line received.' in screen, 'A child did not receive queued console input')
         guest.run('echo shell survives', '\nshell survives\n$')
     actual = subprocess.check_output(['mtype', '-i', str(disk), '::out.txt'])
     require(actual == hello + b'again\n', 'Append redirection differs: ' + repr(actual))
     require(subprocess.check_output(['mtype', '-i', str(disk), '::trunc.txt']) == b'x\n', 'Output redirection did not truncate')
     require(subprocess.check_output(['mtype', '-i', str(disk), '::copy.txt']) == data, 'Large pipeline changed bytes')
+    for name in ('out.tx', 'long.txt'):
+        require(subprocess.check_output(['mtype', '-i', str(disk), '::' + name]) == b'protected\n',
+                'An overflowing command changed ' + name)
     require(b'List the commands.' in subprocess.check_output(['mtype', '-i', str(disk), '::help.txt']),
             'Built-in output did not follow redirection')
 
@@ -718,6 +735,12 @@ def libcos_pipes_test(suite):
         require('Pipe, redirection and waitpid checks passed.' in screen, 'Native pipe checks failed:\n' + screen)
     require(subprocess.check_output(['mtype', '-i', str(disk), '::fds.txt']) == b'ab redirected',
             'libcos stdout redirection changed file bytes')
+    hello = (ROOT / 'targets/x86_64/initrd/hello.txt').read_bytes()
+    for name in ('closed.txt', 'chain.txt'):
+        require(subprocess.check_output(['mtype', '-i', str(disk), '::' + name]) == hello,
+                'Shell redirection with closed standard descriptors changed ' + name)
+    require(subprocess.check_output(['mtype', '-i', str(disk), '::builtin.txt']) == b'builtin\n',
+            'Built-in redirection with closed stdout changed file bytes')
 
 
 def shell_test(suite):
